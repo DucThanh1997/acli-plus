@@ -1,0 +1,36 @@
+name: release
+
+# Build every platform and publish a GitHub Release on each v* tag.
+# Public repo → GitHub-hosted runners are free; no self-hosted runner needed.
+#   git tag v0.1.0 && git push github v0.1.0   (or: scripts/push-all.sh after tagging)
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build all platforms
+        run: VERSION="${GITHUB_REF_NAME#v}" bash scripts/build.sh
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: acli-plus ${{ github.ref_name }}
+          files: dist/acli-plus_*
+          generate_release_notes: true

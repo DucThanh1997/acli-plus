@@ -3,22 +3,28 @@
 #
 # Resolution order:
 #   1. A prebuilt binary in ./dist matching this machine (when run from a checkout).
-#   2. Download the matching binary from the GitLab release (no Go needed).
+#   2. Download the matching binary from the latest (or pinned) release.
 #   3. Build from source if run inside the repo and Go is installed.
 #
 # Environment overrides:
-#   ACLI_PLUS_VERSION   version to install (default below)         e.g. 0.1.0
-#   ACLI_PLUS_BASE_URL  GitLab project URL that hosts releases
-#   ACLI_PLUS_TOKEN     PRIVATE-TOKEN for a private project (optional)
+#   ACLI_PLUS_VERSION   version to install, e.g. 0.3 (default: latest)
+#   ACLI_PLUS_BASE_URL  repo URL that hosts releases (GitHub or GitLab)
+#   ACLI_PLUS_TOKEN     token for a private GitLab mirror (optional; not needed on public GitHub)
 #   INSTALL_DIR         target dir (default /usr/local/bin, else ~/.local/bin)
 set -eu
 
 APP="acli-plus"
-VERSION="${ACLI_PLUS_VERSION:-latest}" # a version like 0.3, or "latest"
-# GitLab project URL that hosts releases (override with ACLI_PLUS_BASE_URL).
-BASE_URL="${ACLI_PLUS_BASE_URL:-https://gitlab.techvify.dev/d14/ai-kit-group/acli-plus}"
+VERSION="${ACLI_PLUS_VERSION:-latest}"
+# Public GitHub repo that hosts releases (override with ACLI_PLUS_BASE_URL).
+BASE_URL="${ACLI_PLUS_BASE_URL:-https://github.com/DucThanh1997/acli-plus}"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 TOKEN="${ACLI_PLUS_TOKEN:-}"
+
+# Pick the release URL scheme from the host.
+case "$BASE_URL" in
+  *github.com*) PROVIDER=github ;;
+  *)            PROVIDER=gitlab ;;
+esac
 
 # Directory of this script (".", i.e. cwd, when piped through sh).
 SELF="${0:-}"
@@ -60,18 +66,29 @@ download() {
   fi
 }
 
+release_url() {
+  if [ "$PROVIDER" = "github" ]; then
+    if [ "$VERSION" = "latest" ]; then
+      echo "${BASE_URL}/releases/latest/download/${asset}"
+    else
+      echo "${BASE_URL}/releases/download/v${VERSION}/${asset}"
+    fi
+  else
+    if [ "$VERSION" = "latest" ]; then
+      echo "${BASE_URL}/-/releases/permalink/latest/downloads/${asset}"
+    else
+      echo "${BASE_URL}/-/releases/v${VERSION}/downloads/${asset}"
+    fi
+  fi
+}
+
 # Resolve a binary into $src.
 src=""
 if [ -f "$REPO_DIR/dist/$asset" ]; then
   echo "Using local prebuilt: dist/$asset (no download)"
   src="$REPO_DIR/dist/$asset"
 else
-  if [ "$VERSION" = "latest" ]; then
-    rel="permalink/latest"
-  else
-    rel="v${VERSION}"
-  fi
-  url="${BASE_URL}/-/releases/${rel}/downloads/${asset}"
+  url=$(release_url)
   echo "Downloading ${APP} (${VERSION}) for ${os}/${arch}..."
   echo "  $url"
   tmpbin=$(mktemp)
@@ -84,7 +101,7 @@ else
   else
     echo "Error: could not download and no source/Go to build from." >&2
     echo "  - check ACLI_PLUS_BASE_URL (currently: $BASE_URL) and ACLI_PLUS_VERSION" >&2
-    echo "  - for a private project, set ACLI_PLUS_TOKEN" >&2
+    echo "  - for a private GitLab mirror, set ACLI_PLUS_TOKEN" >&2
     exit 1
   fi
 fi
