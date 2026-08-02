@@ -1,0 +1,11 @@
+# Build output
+/acli-plus
+/bin/
+/dist/
+
+# Local, non-committed credentials never live in the repo, but guard anyway
+credentials.yaml
+
+# OS / editor
+.DS_Store
+.idea/
