@@ -108,6 +108,11 @@ case ":$PATH:" in
      echo "  export PATH=\"$INSTALL_DIR:\$PATH\"" ;;
 esac
 
+# macOS: drop the quarantine flag so an unsigned CLI binary isn't blocked by Gatekeeper.
+if [ "$os" = "darwin" ]; then
+  xattr -d com.apple.quarantine "$dest" 2>/dev/null || true
+fi
+
 echo "Verifying:"
 "$dest" version
 echo "Done. Next: $APP setup"
