@@ -9,3 +9,7 @@ credentials.yaml
 # OS / editor
 .DS_Store
 .idea/
+
+# Local dev tooling (OpenSpec workflow + Claude Code) — not part of the shipped tool
+/openspec/
+/.claude/
