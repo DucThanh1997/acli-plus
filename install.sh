@@ -14,7 +14,7 @@
 set -eu
 
 APP="acli-plus"
-VERSION="${ACLI_PLUS_VERSION:-0.1.0}"
+VERSION="${ACLI_PLUS_VERSION:-latest}" # a version like 0.3, or "latest"
 # GitLab project URL that hosts releases (override with ACLI_PLUS_BASE_URL).
 BASE_URL="${ACLI_PLUS_BASE_URL:-https://gitlab.techvify.dev/d14/ai-kit-group/acli-plus}"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
@@ -66,8 +66,13 @@ if [ -f "$REPO_DIR/dist/$asset" ]; then
   echo "Using local prebuilt: dist/$asset (no download)"
   src="$REPO_DIR/dist/$asset"
 else
-  url="${BASE_URL}/-/releases/v${VERSION}/downloads/${asset}"
-  echo "Downloading ${APP} v${VERSION} for ${os}/${arch}..."
+  if [ "$VERSION" = "latest" ]; then
+    rel="permalink/latest"
+  else
+    rel="v${VERSION}"
+  fi
+  url="${BASE_URL}/-/releases/${rel}/downloads/${asset}"
+  echo "Downloading ${APP} (${VERSION}) for ${os}/${arch}..."
   echo "  $url"
   tmpbin=$(mktemp)
   if download "$url" "$tmpbin"; then

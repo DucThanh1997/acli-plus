@@ -36,47 +36,52 @@ tar xzf acli-plus-dist.tgz
 ./install.sh
 ```
 
-### End users: one-liner (no clone, no Go)
+### End users: one-liner (token, always latest)
 
-Once a release is published (see below), a user installs the binary directly —
-no repo clone, no Go:
+The repo is private, so users pass a **read token** (Project/Group Access Token
+with `read_api` + `read_repository`). No clone, no Go. `latest` resolves to the
+newest release automatically:
 
 ```bash
-curl -fsSL https://gitlab.techvify.dev/d14/ai-kit-group/acli-plus/-/raw/v0.1.0/install.sh \
-  | ACLI_PLUS_VERSION=0.1.0 sh
+TOK=glpat-READ
+curl -fsSL --header "PRIVATE-TOKEN: $TOK" \
+  https://gitlab.techvify.dev/d14/ai-kit-group/acli-plus/-/raw/main/install.sh \
+  | ACLI_PLUS_TOKEN=$TOK sh
 ```
 
-`install.sh` detects the OS/arch and downloads the matching binary from the
-GitLab release. For a **private** project, pass a token:
-`... | ACLI_PLUS_VERSION=0.1.0 ACLI_PLUS_TOKEN=<token> sh`.
+Pin a specific version instead of latest with `ACLI_PLUS_VERSION=0.3`.
 
 ### Inside an ai-kit setup script
 
-Add an idempotent install step to your kit's setup (pin the version so setups are
-reproducible):
+Idempotent, always-latest install (provide a read-only `ACLI_PLUS_TOKEN` in the
+kit's environment):
 
 ```sh
 if ! command -v acli-plus >/dev/null 2>&1; then
   echo "Installing acli-plus..."
-  curl -fsSL https://gitlab.techvify.dev/d14/ai-kit-group/acli-plus/-/raw/v0.1.0/install.sh \
-    | ACLI_PLUS_VERSION=0.1.0 sh
+  curl -fsSL --header "PRIVATE-TOKEN: $ACLI_PLUS_TOKEN" \
+    https://gitlab.techvify.dev/d14/ai-kit-group/acli-plus/-/raw/main/install.sh \
+    | sh
 fi
 acli-plus version
 ```
 
-### Cutting a release (maintainer)
+### Cutting a release (maintainer) — no runner needed
 
-CI (`.gitlab-ci.yml`) builds every platform and publishes a GitLab Release on any
-`v*` tag:
+Build locally and publish straight to GitLab with a **write token** (scope
+`api`). Keep it in a gitignored `.publish.env`:
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+cp .publish.env.example .publish.env     # then paste your token
+./scripts/publish-release.sh             # auto-bump: 0.1 -> 0.2 -> ... -> 0.9 -> 1.0
+./scripts/publish-release.sh 1.2         # or force a version
 ```
 
-The release exposes permanent asset links at
-`…/-/releases/v0.1.0/downloads/acli-plus_<os>_<arch>`, which is exactly what
-`install.sh` downloads. Set `BASE_URL` in `install.sh` (or `ACLI_PLUS_BASE_URL`)
-to your GitLab project URL.
+It cross-compiles all platforms, uploads them, and creates the release with
+permanent asset links at `…/-/releases/<tag>/downloads/acli-plus_<os>_<arch>`
+plus a `permalink/latest` that the installer's `latest` mode uses. The GitLab
+runner + `.gitlab-ci.yml` are **optional** — only needed if you'd rather CI
+publish automatically on tag.
 
 ### Make targets
 

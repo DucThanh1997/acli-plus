@@ -6,6 +6,9 @@
 # Local, non-committed credentials never live in the repo, but guard anyway
 credentials.yaml
 
+# Local publish token for scripts/publish-release.sh — never commit
+.publish.env
+
 # OS / editor
 .DS_Store
 .idea/

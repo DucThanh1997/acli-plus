@@ -1,51 +1,68 @@
 #!/usr/bin/env bash
-# Publish a GitLab release from locally-built ./dist — no CI/runner needed.
+# Publish a GitLab release from locally-built binaries — no CI/runner needed.
 #
-# Prereqs:
-#   - ./dist built:  ./scripts/build.sh
-#   - a GitLab token with the `api` scope (Personal or Project Access Token)
+# Versioning: with no argument, reads the latest release and bumps by 0.1
+#   (0.1 -> 0.2 -> ... -> 0.9 -> 1.0 -> 1.1 ...). Pass a version to override:
+#     ./scripts/publish-release.sh 1.2
 #
-# Usage:
-#   GITLAB_TOKEN=glpat-xxxx ./scripts/publish-release.sh v0.1.0
-#
-# It uploads each binary to the project's generic package registry and creates
-# a release whose asset links use `filepath`, so install.sh can fetch them at
-#   <project>/-/releases/<tag>/downloads/acli-plus_<os>_<arch>
+# Token: put it in a gitignored .publish.env at the repo root (recommended):
+#     GITLAB_TOKEN=glpat-xxxx          # scope: api (role Maintainer)
+#   or export GITLAB_TOKEN before running. NEVER commit the token.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-TAG="${1:?usage: GITLAB_TOKEN=xxx $0 <tag, e.g. v0.1.0>}"
-VER="${TAG#v}"
-: "${GITLAB_TOKEN:?set GITLAB_TOKEN to a token with the api scope}"
+# --- token (from .publish.env or the environment) ---
+[ -f .publish.env ] && . ./.publish.env
+: "${GITLAB_TOKEN:?set GITLAB_TOKEN in .publish.env (or the environment) — a token with the api scope}"
+
 HOST="${GITLAB_HOST:-https://gitlab.techvify.dev}"
 PROJECT="${GITLAB_PROJECT:-d14/ai-kit-group/acli-plus}"
-
+REF="${RELEASE_REF:-main}"
 PROJ_ENC=$(printf '%s' "$PROJECT" | sed 's:/:%2F:g')
 API="$HOST/api/v4/projects/$PROJ_ENC"
 
-[ -d dist ] && ls dist/acli-plus_* >/dev/null 2>&1 || {
-  echo "dist/ is empty — run ./scripts/build.sh first" >&2
-  exit 1
-}
+auth=(--header "PRIVATE-TOKEN: $GITLAB_TOKEN")
 
-echo "Uploading binaries to the generic package registry..."
+# --- resolve the version to publish ---
+if [ "${1:-}" != "" ]; then
+  VER="${1#v}"
+else
+  latest=$(curl -fsSL "${auth[@]}" "$API/releases?per_page=1" \
+    | grep -o '"tag_name":"[^"]*"' | head -1 | sed 's/.*:"v\{0,1\}//; s/"$//' || true)
+  if [ -z "$latest" ]; then
+    VER="0.1"
+  else
+    major=$(printf '%s' "$latest" | cut -d. -f1)
+    minor=$(printf '%s' "$latest" | cut -d. -f2)
+    tenths=$(( major * 10 + minor + 1 )) # +0.1, carrying at .10 -> next major
+    VER="$(( tenths / 10 )).$(( tenths % 10 ))"
+  fi
+fi
+TAG="v${VER}"
+echo "Publishing ${TAG} (ref: ${REF})"
+
+# --- build all platforms with the version baked in ---
+echo "Building..."
+VERSION="$VER" bash scripts/build.sh >/dev/null
+ls dist/acli-plus_* >/dev/null 2>&1 || { echo "build produced no binaries" >&2; exit 1; }
+
+# --- upload binaries to the generic package registry ---
+echo "Uploading binaries..."
 links=""
 for file in dist/acli-plus_*; do
   name=$(basename "$file")
   url="$API/packages/generic/acli-plus/$VER/$name"
-  curl --fail --silent --show-error \
-    --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-    --upload-file "$file" "$url" >/dev/null
-  echo "  uploaded $name"
+  curl -fsS "${auth[@]}" --upload-file "$file" "$url" >/dev/null
+  echo "  $name"
   links="${links}{\"name\":\"$name\",\"url\":\"$url\",\"filepath\":\"/$name\",\"link_type\":\"package\"},"
 done
 links="[${links%,}]"
 
-echo "Creating release $TAG..."
-curl --fail --silent --show-error \
-  --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-  --header "Content-Type: application/json" \
-  --data "{\"tag_name\":\"$TAG\",\"name\":\"acli-plus $TAG\",\"description\":\"acli-plus $TAG\",\"assets\":{\"links\":$links}}" \
+# --- create the release (creates the tag at $REF) ---
+echo "Creating release ${TAG}..."
+curl -fsS "${auth[@]}" --header "Content-Type: application/json" \
+  --data "{\"tag_name\":\"$TAG\",\"ref\":\"$REF\",\"name\":\"acli-plus $TAG\",\"description\":\"acli-plus $TAG\",\"assets\":{\"links\":$links}}" \
   "$API/releases" >/dev/null
 
-echo "Done. Release: $HOST/$PROJECT/-/releases/$TAG"
+echo "Done: ${HOST}/${PROJECT}/-/releases/${TAG}"
+echo "Latest permalink: ${HOST}/${PROJECT}/-/releases/permalink/latest"
