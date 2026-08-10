@@ -15,6 +15,12 @@ type Project struct {
 	Site   string `yaml:"site"`
 	Space  string `yaml:"space"`
 	Parent string `yaml:"parent"`
+	// JiraProject is the default project key for 'jira workitem create' and
+	// 'jira board search', so a repo pinned to one Jira project need not repeat
+	// --project on every command.
+	JiraProject string `yaml:"jira_project"`
+	// JiraBoard is the default board id or name for the board and sprint commands.
+	JiraBoard string `yaml:"jira_board"`
 }
 
 const projectFileName = "acli-plus.yaml"

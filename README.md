@@ -1,22 +1,28 @@
 # acli-plus
 
-Publish Markdown files to **Confluence Cloud** from the command line.
+One command-line tool for **Confluence Cloud** and **Jira Cloud**.
 
 Atlassian's official [`acli`](https://developer.atlassian.com/cloud/acli/) covers
-Jira only — it has no Confluence create/update/delete. `acli-plus` fills that
-gap by talking to the Confluence REST API (`/wiki/api/v2`) directly: point it at
-a Markdown file and a Confluence URL, and it renders the file to Confluence
-storage format and writes the page.
+Jira only — it has no Confluence create/update/delete. `acli-plus` fills that gap
+by talking to the Confluence REST API (`/wiki/api/v2`) directly, and then covers
+Jira too (`/rest/api/3` and `/rest/agile/1.0`) with the same command names acli
+uses — so you get both halves of an Atlassian site from one binary, and `acli`
+itself does not need to be installed.
 
 ```bash
 acli-plus create docs/onboarding.md https://acme.atlassian.net/wiki/spaces/DEV/pages/98765/Handbook
 # created "onboarding" -> https://acme.atlassian.net/wiki/pages/viewpage.action?pageId=120033
+
+acli-plus jira workitem create -p TEAM -t Task -s "Fix login redirect" -a @me
+# created TEAM-142 "Fix login redirect" -> https://acme.atlassian.net/browse/TEAM-142
 ```
 
 - Single static binary, no runtime dependencies (Go 1.26, `CGO_ENABLED=0`).
-- Credentials stored **per Confluence host**, so one machine can publish to many sites.
-- Safe by default: `--dry-run` everywhere, confirmation before overwriting pages
-  edited outside the tool, and `delete` only moves pages to the trash.
+- **One credential for both products.** Confluence and Jira share a site, an
+  account, and an API token, so `acli-plus setup` is all either side needs.
+- Credentials stored **per host**, so one machine can work with many sites.
+- Safe by default: `--dry-run` everywhere, confirmation before destructive
+  writes, and Confluence `delete` only moves pages to the trash.
 
 ---
 
@@ -25,6 +31,7 @@ acli-plus create docs/onboarding.md https://acme.atlassian.net/wiki/spaces/DEV/p
 - [Install](#install)
 - [Quick start](#quick-start)
 - [Command reference](#command-reference)
+- [Jira commands](#jira-commands)
 - [Global flags](#global-flags)
 - [Page references (what you can paste as `<url>`)](#page-references-what-you-can-paste-as-url)
 - [Titles and frontmatter](#titles-and-frontmatter)
@@ -144,7 +151,7 @@ rm -rf ~/.config/acli-plus                                                      
 ## Quick start
 
 ```bash
-# 1. Register a Confluence site (token is typed hidden, stored per host)
+# 1. Register an Atlassian site once — this covers Confluence *and* Jira
 acli-plus setup
 
 # 2. Create a page as a child of a parent page (paste the PARENT's URL)
@@ -160,6 +167,11 @@ acli-plus update onboarding.md <page-url> --dry-run
 
 # 5. Delete (moves to trash — reversible)
 acli-plus delete https://acme.atlassian.net/wiki/spaces/DEV/pages/120033/Onboarding
+
+# 6. Same site, Jira side — no extra login
+acli-plus jira workitem create -p TEAM -t Bug -s "Login loops on Safari" -a @me
+acli-plus jira workitem search --jql "assignee = currentUser() AND statusCategory != Done"
+acli-plus jira workitem transition TEAM-142 --status "In Progress"
 ```
 
 ---
@@ -168,10 +180,11 @@ acli-plus delete https://acme.atlassian.net/wiki/spaces/DEV/pages/120033/Onboard
 
 | Command | Arguments | What it does |
 |---|---|---|
-| [`setup`](#acli-plus-setup) | — | Stores site URL, email, API token for one Confluence host. |
+| [`setup`](#acli-plus-setup) | — | Stores site URL, email, API token for one Atlassian host. |
 | [`create`](#acli-plus-create-filemd-url) | `<file.md> <url>` | `<url>` is the **parent** (page or space). Creates a child page. |
 | [`update`](#acli-plus-update-filemd-url) | `<file.md> <url>` | `<url>` is the **target page**. Overwrites it in place. |
 | [`delete`](#acli-plus-delete-url) | `<url>` | Moves the page at `<url>` to the trash. |
+| [`jira`](#jira-commands) | *see below* | Work items, projects, boards, sprints, filters, dashboards. |
 | [`version`](#acli-plus-version) | — | Prints the version. |
 
 `acli-plus --help` and `acli-plus <command> --help` print the same information.
@@ -182,15 +195,20 @@ Interactive. Asks for three things and stores them keyed by host:
 
 ```
 $ acli-plus setup
-Confluence site URL (e.g. https://your-team.atlassian.net): https://acme.atlassian.net
+Atlassian site URL (e.g. https://your-team.atlassian.net): https://acme.atlassian.net
 Atlassian account email: you@acme.com
 API token (create at https://id.atlassian.com/manage-profile/security/api-tokens): ********
 Saved credentials for acme.atlassian.net to /Users/you/.config/acli-plus/credentials.yaml
+Reachable on this site: Confluence, Jira
 ```
 
 - The token is read **without echo** when stdin is a terminal.
-- Credentials are verified against the site before being saved.
-- Run it once per Confluence site; entries are keyed by host and never duplicated.
+- Credentials are checked against **both** Confluence and Jira before being
+  saved, and the last line reports which ones answered. A site licensed for only
+  one product still works — the credentials are accepted as long as one product
+  does, and only the commands for the other one will fail.
+- Run it once per site; entries are keyed by host and never duplicated.
+- **No separate Jira login.** One site, one account, one API token covers both.
 - Create the API token at <https://id.atlassian.com/manage-profile/security/api-tokens>
   (Basic auth = account email + API token). Tokens are stored locally only and
   never written into project files.
@@ -267,21 +285,206 @@ Released binaries report their release number; a locally built one reports
 
 ---
 
+## Jira commands
+
+Everything lives under `acli-plus jira`. Command and flag names mirror
+Atlassian's `acli`, so anything written for `acli jira …` works by swapping the
+binary — and `acli` does not have to be installed.
+
+Authentication is the credential from `acli-plus setup`. Jira and Confluence are
+the same site, the same account, and the same API token.
+
+### Work items
+
+`acli-plus jira workitem <command>` (aliases: `issue`, `wi`).
+
+| Command | What it does |
+|---|---|
+| `create` | Create one work item. |
+| `create-bulk` | Create many from a JSON file (`--generate-json` prints a template). |
+| `view <key>` | Show one work item; `--fields` narrows what is fetched. |
+| `search` | Find work items with `--jql`. |
+| `edit` | Change fields on one or many. |
+| `delete` | Permanently delete (confirms first). |
+| `clone` | Copy into new work items. |
+| `archive` / `unarchive` | Archive or restore — **Jira Premium and Enterprise only**. |
+| `assign` | Set or clear the assignee. |
+| `transition` | Move to another status; `--list` shows what is reachable. |
+| `link` | Link two work items; `--list-types` shows the configured types. |
+| `comment-create` / `comment-list` / `comment-update` / `comment-delete` | Manage comments. |
+| `comment-visibility` | Restrict a comment to a group or role, or `--public` to lift it. |
+| `attachment-list` / `attachment-delete` | List or remove attachments. |
+| `watcher-list` / `watcher-remove` | See and remove watchers. |
+
+`watcher-list` and `field list` are the two additions to acli's surface — you
+need them to find the ids the matching `remove`/`delete` commands take.
+
+#### Choosing which work items to act on
+
+Every bulk command (`edit`, `delete`, `clone`, `assign`, `transition`,
+`archive`, `unarchive`) accepts all three forms, and combines them:
+
+```bash
+acli-plus jira workitem edit TEAM-1 TEAM-2 --label triaged     # positional
+acli-plus jira workitem edit --key TEAM-1,TEAM-2 --label triaged
+acli-plus jira workitem edit --jql "project = TEAM AND labels = old" --label triaged
+```
+
+Keys are case-insensitive, and a pasted URL works anywhere a key does —
+`https://acme.atlassian.net/browse/TEAM-1`, or a board URL with
+`?selectedIssue=TEAM-1`. A URL also **selects the site**, exactly like a
+Confluence page URL does.
+
+#### Setting fields
+
+Named flags cover the common fields:
+
+```bash
+acli-plus jira workitem create \
+  -p TEAM -t Story -s "Checkout rewrite" \
+  -a ann@acme.com --label backend,q3 --priority High \
+  --due 2026-09-30 --parent TEAM-100 --component api
+```
+
+Anything else — including every custom field — goes through `--field`, which
+takes the field's **display name or id** and shapes the value to match the
+field's type:
+
+```bash
+acli-plus jira workitem create -p TEAM -t Story -s "…" \
+  --field "Story Points=5" \
+  --field "Severity=High" \
+  --field customfield_10050=ios,android
+```
+
+| Field type | What you type | What is sent |
+|---|---|---|
+| string, date | `Summary=hello` | `"hello"` |
+| number | `Story Points=5` | `5` |
+| user | `Team Lead=@me` | `{"accountId": "…"}` |
+| option | `Severity=High` | `{"value": "High"}` |
+| array of strings | `Labels=a,b` | `["a","b"]` |
+| array of options/versions | `Platforms=ios,android` | `[{"value":"ios"},…]` |
+| anything else | `Field={"value":"X"}` | passed through as JSON |
+
+An empty value (`--field Severity=`) clears the field. Ambiguous names are an
+error listing the candidate ids, never a guess.
+
+People can be given as `@me`, an email, a display name, or an account id. A name
+that matches several accounts is reported rather than picked.
+
+#### Descriptions and comments
+
+Descriptions and comments are stored as Atlassian Document Format. You write
+Markdown; acli-plus converts it:
+
+```bash
+acli-plus jira workitem create -p TEAM -t Task -s "Ship it" \
+  -d "Blocked on **infra**. See [the RFC](https://example.com)."
+
+# summary and description from one Markdown file:
+# the frontmatter title (or leading H1) becomes the summary
+acli-plus jira workitem create -p TEAM -t Story --from-file docs/story.md
+
+# open $EDITOR — first line is the summary, the rest the description
+acli-plus jira workitem create -p TEAM -t Task -e
+```
+
+Headings, bold/italic/strikethrough, inline and fenced code (with language),
+links, nested lists, task lists, tables, blockquotes and rules all convert.
+Images become links, with a warning, because ADF images need an uploaded media
+id that a Markdown file cannot supply. A file that already holds an ADF document
+is passed through untouched.
+
+#### Searching
+
+```bash
+acli-plus jira workitem search --jql "project = TEAM AND status = 'In Progress'"
+acli-plus jira workitem search --jql "assignee = currentUser()" --paginate --csv
+acli-plus jira workitem search --jql "project = TEAM" --fields summary,status --json
+```
+
+Jira's current search API is cursor-paginated and **reports no total**, so by
+default you get one page. `--paginate` walks every page; `--limit` stops after a
+count.
+
+### Projects, fields, boards, sprints, filters, dashboards
+
+```bash
+acli-plus jira project list --type software
+acli-plus jira project view TEAM
+acli-plus jira project create --key TEAM --name "Team Space" --type software
+acli-plus jira project update TEAM --name "New name"
+acli-plus jira project archive TEAM        # Premium/Enterprise
+acli-plus jira project restore TEAM
+acli-plus jira project delete TEAM         # trashed by default; --no-undo is immediate
+
+acli-plus jira field list --custom --query points   # find customfield ids
+acli-plus jira field create --name Team --type com.atlassian.jira.plugin.system.customfieldtypes:textfield
+acli-plus jira field delete "Team"
+acli-plus jira field cancel-delete "Team"
+
+acli-plus jira board search --project TEAM
+acli-plus jira board list-sprints --board 42 --state active
+acli-plus jira sprint list-workitems --sprint 128
+acli-plus jira sprint list-workitems --sprint "Sprint 7" --board 42
+
+acli-plus jira filter list --favourites
+acli-plus jira filter search --name sprint
+acli-plus jira filter add-favourite 10001
+acli-plus jira filter change-owner 10001 --owner ann@acme.com
+
+acli-plus jira dashboard search --name "Team health"
+```
+
+Boards, sprints and filters accept a **name or an id**; a name that matches more
+than one is reported with the ids to choose from.
+
+### Output
+
+Read commands print an aligned table. `--json` prints the untouched API payload
+(so custom fields are all there), and listing commands also take `--csv`.
+
+```bash
+acli-plus jira workitem view TEAM-1 --json | jq '.fields.customfield_10016'
+acli-plus jira workitem search --jql "project = TEAM" --paginate --csv > backlog.csv
+```
+
+### What is not covered
+
+| Not supported | Why |
+|---|---|
+| Uploading attachments | Not in acli's surface either; `attachment-list`/`-delete` are. |
+| Creating or closing sprints | acli exposes only `sprint list-workitems`. |
+| `acli jira auth` | `acli-plus setup` is the equivalent, shared with Confluence. |
+
+Archiving work items and projects needs Jira Premium or Enterprise; on other
+plans acli-plus reports that the operation is not available on your plan rather
+than a confusing 404.
+
+---
+
 ## Global flags
 
 Available on every command.
 
 | Flag | Effect |
 |---|---|
-| `--dry-run` | Print what *would* happen (`[dry-run] created …`) and write nothing. Still contacts Confluence to resolve the target. |
+| `--dry-run` | Print what *would* happen (`[dry-run] created …`) and write nothing. Still contacts the site to resolve the target. |
 | `--yes` | Skip all confirmation prompts. Use in CI/scripts. |
 | `--force` | Overwrite even if the page was last edited outside acli-plus. (Also skips prompts.) |
-| `--site` | Confluence site (host or full URL) to use when the argument carries no host — e.g. with a bare page id. |
+| `--site` | Atlassian site (host or full URL) to use when the argument carries no host — e.g. a bare page id or a bare work item key. |
 
 ```bash
 acli-plus update notes.md 120033 --site https://acme.atlassian.net --yes
 acli-plus delete <page-url> --dry-run
+acli-plus jira workitem delete TEAM-1 --dry-run
+acli-plus jira workitem delete TEAM-1 --yes    # no prompt, for scripts
 ```
+
+On the Jira side the prompts guard the irreversible commands — `workitem delete`,
+`comment-delete`, `attachment-delete`, `project delete` and `field delete`.
+Unlike a Confluence page, a deleted work item does **not** go to a trash.
 
 ---
 
@@ -330,8 +533,12 @@ just changing `title:` and re-running `update`.
 
 ## Markdown support
 
-Rendered to Confluence storage format via [goldmark](https://github.com/yuin/goldmark)
-with GitHub Flavored Markdown enabled.
+Parsed with [goldmark](https://github.com/yuin/goldmark) and GitHub Flavored
+Markdown enabled, then rendered to Confluence storage format for pages, or to
+Atlassian Document Format for Jira descriptions and comments. The table below
+describes the Confluence renderer; see
+[Descriptions and comments](#descriptions-and-comments) for the Jira side, which
+covers the same constructs.
 
 | Supported | Notes |
 |---|---|
@@ -352,7 +559,6 @@ with GitHub Flavored Markdown enabled.
 | Raw HTML (block or inline) | silently dropped |
 | Code-block syntax highlighting | rendered as plain code |
 | Labels, whole-directory publishing, named profiles | not implemented |
-| Jira and other Atlassian products | out of scope — Confluence only |
 
 ---
 
@@ -374,12 +580,13 @@ hosts:
     token: <api-token>
 ```
 
-Run `acli-plus setup` once per site. Because a pasted URL already carries its
-host, the matching token is selected automatically — no profile switching.
+Run `acli-plus setup` once per site — the entry serves Confluence and Jira
+alike. Because a pasted URL already carries its host, the matching token is
+selected automatically, whether it is a wiki page URL or a `/browse/TEAM-1` link.
 
 ### Host resolution order
 
-1. host in the `<url>` argument
+1. host in the `<url>` argument (or in a pasted work item URL)
 2. `--site`
 3. `ACLI_PLUS_SITE` environment variable
 4. `site:` in `acli-plus.yaml` in the current directory
@@ -393,10 +600,17 @@ Optional, **non-secret**, safe to commit — never put a token here:
 
 ```yaml
 site: https://acme.atlassian.net
+jira_project: TEAM       # default for 'jira workitem create' and 'jira board search'
+jira_board: 42           # default for the board and sprint commands
 ```
 
-Only `site` is honoured today; `space` and `parent` are reserved for a future
-version.
+With `jira_project` set, `-p/--project` becomes optional:
+
+```bash
+acli-plus jira workitem create -t Task -s "Fix login redirect"
+```
+
+`space` and `parent` are reserved for a future version and are not honoured yet.
 
 ---
 
@@ -420,9 +634,12 @@ the page's version list.
 ## Output and exit codes
 
 - Results go to **stdout**: `created "Title" -> <link>`, `updated "Title" -> <link>`,
-  `deleted (moved to trash) "Title"`, or `aborted; no changes made`.
+  `deleted (moved to trash) "Title"`, `created TEAM-142 "Summary" -> <link>`, or
+  `aborted; no changes made`. Jira tables, JSON and CSV go to stdout too, so they
+  pipe cleanly.
 - With `--dry-run`, every line is prefixed `[dry-run] `.
-- Warnings and prompts go to **stderr** (`warning: image skipped …`).
+- Warnings and prompts go to **stderr** (`warning: image skipped …`), as does
+  `no results` for an empty table.
 - On failure: `error: <message>` on stderr, exit code **1**. Success is **0**.
 
 ---
@@ -440,6 +657,13 @@ the page's version list.
 | `update needs a page URL (with a page id)` | You passed a space URL to `update`/`delete`. Use `create` for a space target. |
 | `confluence: space not found: DEV` | Wrong space key, or your account can't see that space. |
 | `confluence api 4xx: …` | Raw API error passed through — usually a permissions or payload issue. |
+| `authentication failed; check your email and API token` on `jira …` | The token is fine for Confluence but your account has no Jira access, or the token was revoked. `acli-plus setup` prints which products answered. |
+| `not a work item key (expected e.g. TEAM-123) or a Jira work item URL` | The argument isn't a key or a Jira URL carrying one. |
+| `no transition to that status is available from the current status (available: …)` | Jira only offers transitions valid from the current status. The message lists them; `workitem transition <key> --list` shows the same. |
+| `field not found: "Story points"` | Run `acli-plus jira field list --query points` to see the exact name and id. |
+| `"Ann" matches 3 accounts; pass an account id instead: …` | Ambiguous person. Use the email or the account id from the message. |
+| `this operation is not available on your Jira plan` | Archiving work items and projects needs Premium or Enterprise. |
+| `jira api 400: Field 'customfield_x' cannot be set` | The field isn't on the create/edit screen for that project and issue type. |
 | macOS: *"cannot be opened because the developer cannot be verified"* | The binary is unsigned. `xattr -d com.apple.quarantine $(which acli-plus)` — `install.sh` does this for you. |
 | `NOTE: … is not on your PATH` | Add the printed line to your shell profile, e.g. `export PATH="$HOME/.local/bin:$PATH"`. |
 
@@ -457,22 +681,28 @@ make install   # run ./install.sh
 make clean     # remove bin/ and dist/
 ```
 
-Layout — four layers, dependencies point inward:
+Layout — four layers, dependencies point inward. Confluence and Jira are two
+products behind the same layering, sharing the credential store and the Markdown
+parser:
 
 ```
 main.go
 internal/
   cmd/                      handler layer — Cobra commands, flags, output
-  app/                      use cases — create/update/delete, setup, rendering
+    jira/                   the 'jira' command tree (injected via Deps)
+  app/                      use cases — pages, setup, work items, catalogs
   domain/confluence/        entities, ports (Gateway), URL parsing, errors
+  domain/jira/              entities, ports, work item key/URL parsing, errors
   gateway/confluencerest/   REST adapter for /wiki/api/v2
-  markdown/                 Markdown → Confluence storage format (pure, no I/O)
+  gateway/jirarest/         REST adapter for /rest/api/3 and /rest/agile/1.0
+  markdown/                 Markdown → Confluence storage format and → ADF (pure)
   config/                   credential store, host resolution, project file
 scripts/                    build.sh, publish-release.sh, push-all.sh
 ```
 
 `domain` and `markdown` have no I/O, so they are unit-tested directly; `app` is
-tested against a fake `Gateway`.
+tested against fake gateways, `gateway/jirarest` against an `httptest` server,
+and `cmd/jira` asserts the command tree still matches acli's.
 
 ---
 

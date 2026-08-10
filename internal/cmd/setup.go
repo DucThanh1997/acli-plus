@@ -19,8 +19,12 @@ const apiTokenURL = "https://id.atlassian.com/manage-profile/security/api-tokens
 func newSetupCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "setup",
-		Short: "Register a Confluence site (URL, email, API token)",
-		Args:  cobra.NoArgs,
+		Short: "Register an Atlassian site (URL, email, API token) for Confluence and Jira",
+		Long: "Register an Atlassian site.\n\n" +
+			"One site, one account, and one API token cover both Confluence and Jira,\n" +
+			"so this is the only credential either set of commands needs. The token is\n" +
+			"checked against both products and stored per host.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runSetup(cmd.Context())
 		},
@@ -30,7 +34,7 @@ func newSetupCmd() *cobra.Command {
 func runSetup(ctx context.Context) error {
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Print("Confluence site URL (e.g. https://your-team.atlassian.net): ")
+	fmt.Print("Atlassian site URL (e.g. https://your-team.atlassian.net): ")
 	siteLine, _ := reader.ReadString('\n')
 	host := config.ResolveHost(strings.TrimSpace(siteLine), "", "", config.Project{})
 	if host == "" {
@@ -59,12 +63,17 @@ func runSetup(ctx context.Context) error {
 		return err
 	}
 
-	service := app.NewSetupService(store, gatewayFactory)
-	if err := service.Run(ctx, app.SetupInput{Host: host, Email: email, Token: token}); err != nil {
+	service := app.NewSetupService(store,
+		app.ConfluenceVerifier(gatewayFactory),
+		app.JiraVerifier(jiraGatewayFactory),
+	)
+	outcome, err := service.Run(ctx, app.SetupInput{Host: host, Email: email, Token: token})
+	if err != nil {
 		return err
 	}
 
 	fmt.Printf("Saved credentials for %s to %s\n", host, store.Path())
+	fmt.Printf("Reachable on this site: %s\n", strings.Join(outcome.Reachable, ", "))
 	return nil
 }
 
