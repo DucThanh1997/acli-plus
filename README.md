@@ -704,6 +704,17 @@ scripts/                    build.sh, publish-release.sh, push-all.sh
 tested against fake gateways, `gateway/jirarest` against an `httptest` server,
 and `cmd/jira` asserts the command tree still matches acli's.
 
+`make test` never touches the network. To check the Jira commands against a real
+site, [`scripts/e2e-jira.sh`](scripts/e2e-jira.sh) drives every one of them and
+deletes what it created on the way out;
+[`scripts/e2e-jira.md`](scripts/e2e-jira.md) is the same run written out case by
+case for checking things by hand.
+
+```bash
+./scripts/e2e-jira.sh --project TEAM --read-only   # reads and dry-runs only
+./scripts/e2e-jira.sh --project TEAM               # full run, asks before writing
+```
+
 ---
 
 ## Releasing (maintainers)
