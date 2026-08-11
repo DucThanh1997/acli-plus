@@ -119,9 +119,17 @@ func writeADFListItem(out *strings.Builder, value any, indent, marker string) {
 	if !ok {
 		return
 	}
+	content := childNodes(node)
+
 	var body strings.Builder
-	for _, child := range childNodes(node) {
-		writeADFBlock(&body, child, "")
+	// A listItem holds block nodes, but a taskItem holds inline content
+	// directly. Rendering the latter as blocks drops the text entirely.
+	if len(content) > 0 && !isBlockContent(content) {
+		body.WriteString(adfInline(content))
+	} else {
+		for _, child := range content {
+			writeADFBlock(&body, child, "")
+		}
 	}
 	lines := splitLines(strings.TrimRight(body.String(), "\n"))
 	if len(lines) == 0 {

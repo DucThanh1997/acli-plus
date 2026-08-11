@@ -246,6 +246,13 @@ func TestADFToText(t *testing.T) {
 			want:   "@Ann",
 		},
 		{
+			// A taskItem holds inline content, unlike listItem which holds
+			// blocks; treating them the same drops the text.
+			name:   "task list keeps its text and state",
+			source: `{"type":"doc","content":[{"type":"taskList","attrs":{"localId":"1"},"content":[{"type":"taskItem","attrs":{"localId":"2","state":"DONE"},"content":[{"type":"text","text":"shipped"}]},{"type":"taskItem","attrs":{"localId":"3","state":"TODO"},"content":[{"type":"text","text":"pending"}]}]}]}`,
+			want:   "[x] shipped\n[ ] pending",
+		},
+		{
 			name:   "plain string body from the v2 API is passed through",
 			source: `"already plain"`,
 			want:   "already plain",
@@ -262,17 +269,57 @@ func TestADFToText(t *testing.T) {
 }
 
 // TestADFRoundTrip checks that the two directions agree on the constructs a
-// work item description actually uses.
+// work item description actually uses. Every block type the converter emits
+// belongs here: a construct that survives ConvertADF but vanishes in ADFToText
+// looks to the user like the description was never saved.
 func TestADFRoundTrip(t *testing.T) {
-	source := "## Plan\n\nShip **fast**.\n\n- one\n- two\n"
+	tests := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{name: "heading", source: "## Plan\n", want: "## Plan"},
+		{name: "paragraph drops the emphasis markers", source: "Ship **fast**.\n", want: "Ship fast."},
+		{name: "bullet list", source: "- one\n- two\n", want: "- one\n- two"},
+		{name: "ordered list", source: "1. one\n2. two\n", want: "1. one\n2. two"},
+		{name: "task list", source: "- [x] done\n- [ ] todo\n", want: "[x] done\n[ ] todo"},
+		{name: "blockquote", source: "> quoted\n", want: "> quoted"},
+		{name: "code block", source: "```go\nx := 1\n```\n", want: "```go\nx := 1\n```"},
+		{name: "table", source: "| a | b |\n|---|---|\n| 1 | 2 |\n", want: "a | b\n1 | 2"},
+		{name: "rule", source: "before\n\n---\n\nafter\n", want: "before\n\n---\n\nafter"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := ConvertADF([]byte(tc.source))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := ADFToText(doc.JSON); got != tc.want {
+				t.Errorf("round trip = %q, want %q\nADF: %s", got, tc.want, doc.JSON)
+			}
+		})
+	}
+}
+
+// TestADFRoundTripKeepsEveryBlock is the guard the task-list bug slipped past:
+// whatever the converter emits, the flattener must render something for it.
+func TestADFRoundTripKeepsEveryBlock(t *testing.T) {
+	source := "# Title\n\nIntro.\n\n## Heading\n\n- bullet\n\n1. numbered\n\n" +
+		"- [x] done\n- [ ] todo\n\n> quoted\n\n```go\ncode()\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n"
 	doc, err := ConvertADF([]byte(source))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := ADFToText(doc.JSON)
-	want := "## Plan\n\nShip fast.\n\n- one\n- two"
-	if got != want {
-		t.Errorf("round trip = %q, want %q", got, want)
+	text := ADFToText(doc.JSON)
+
+	for _, want := range []string{
+		"Intro.", "## Heading", "- bullet", "1. numbered",
+		"[x] done", "[ ] todo", "> quoted", "code()", "a | b",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("round trip lost %q\ngot:\n%s\nADF: %s", want, text, doc.JSON)
+		}
 	}
 }
 
