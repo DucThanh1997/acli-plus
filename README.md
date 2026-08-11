@@ -590,9 +590,16 @@ selected automatically, whether it is a wiki page URL or a `/browse/TEAM-1` link
 2. `--site`
 3. `ACLI_PLUS_SITE` environment variable
 4. `site:` in `acli-plus.yaml` in the current directory
+5. the only registered host, when exactly one is registered
 
-If none resolve, the command stops with
-`no Confluence site specified: pass a URL, --site, ACLI_PLUS_SITE, or set 'site' in acli-plus.yaml`.
+Step 5 exists because most Jira commands carry no URL to take a host from —
+`jira project list` has nothing to parse — and a machine set up against a single
+site should not have to repeat `--site` on every call.
+
+With **no** site registered the command stops with `no Atlassian site specified
+and none registered: run 'acli-plus setup', …`. With **several** registered and
+nothing naming one, it stops with `several sites are registered; pass --site to
+choose one (registered: …)` rather than guessing.
 
 ### Per-project file (`acli-plus.yaml`)
 
@@ -649,7 +656,10 @@ the page's version list.
 | Message | Cause / fix |
 |---|---|
 | `no credentials for host; run 'acli-plus setup' (host acme.atlassian.net)` | That host was never registered. Run `acli-plus setup` for it. |
-| `no Confluence site specified: …` | Bare page id with no host source. Add `--site`, `ACLI_PLUS_SITE`, or `acli-plus.yaml`. |
+| `no Atlassian site specified and none registered: …` | Nothing named a site and none is registered. Run `acli-plus setup`. |
+| `several sites are registered; pass --site to choose one` | More than one host in the credential store and nothing said which. Add `--site`, `ACLI_PLUS_SITE`, or `site:` in `acli-plus.yaml`. |
+| `this board does not use sprints (Kanban boards have none)` | Sprints are a Scrum concept; the board you named is Kanban. |
+| `the JQL query matched no work items: …` | The query ran but selected nothing, so there was nothing to edit or delete. |
 | `confluence: authentication failed` | Bad/revoked API token, wrong email, or no permission on the space. Re-run `acli-plus setup`; check the token at <https://id.atlassian.com/manage-profile/security/api-tokens>. |
 | `confluence: short /wiki/x/ links are not supported; paste the full page URL` | Open the short link in a browser and copy the resulting `/wiki/spaces/…/pages/…` URL. |
 | `confluence: not a recognizable Confluence URL or page id` | The argument isn't a Confluence URL or a numeric id. |

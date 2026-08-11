@@ -9,44 +9,57 @@ Kiểm chứng lệnh Jira trên site thật. Có 2 cách dùng:
 
 ## 0. Chuẩn bị
 
-### 0.1. Có cần setup lại không?
+### 0.1. Build binary mới — làm trước tiên
+
+⚠️ **`acli-plus` trong PATH (`/usr/local/bin`) là bản cũ, chưa có lệnh `jira`.**
+Kiểm tra nhanh:
+
+```bash
+acli-plus jira --help    # bản cũ: "unknown command"
+```
+
+Build bản mới:
+
+```bash
+make build
+export ACLI=./bin/acli-plus
+```
+
+Muốn dùng thẳng `acli-plus` ở mọi nơi thì cài đè rồi `export ACLI=acli-plus`:
+
+```bash
+./install.sh
+```
+
+Tất cả lệnh trong tài liệu này dùng `$ACLI`.
+
+### 0.2. Có cần setup lại không?
 
 **Không cần.** Credential trong `~/.config/acli-plus/credentials.yaml` dùng chung
 cho Confluence và Jira — cùng site, cùng account, cùng API token. Bạn đã đăng ký
-`thanh191997-acli.atlassian.net` rồi nên các lệnh Jira dùng luôn được.
+`thanh191997-acli.atlassian.net` rồi nên các lệnh Jira chạy luôn được, đã kiểm
+chứng thực tế.
 
-**Nhưng nên chạy lại 1 lần** (khuyến nghị, không bắt buộc):
+Nếu muốn xác nhận token có quyền Jira thì chạy setup **bằng binary mới**:
 
 ```bash
-acli-plus setup
+$ACLI setup
 ```
 
-Lý do: credential hiện tại được lưu bởi bản cũ, vốn chỉ verify với Confluence.
-Bản mới verify cả hai và in ra dòng cuối:
+Bản mới hỏi `Atlassian site URL` (bản cũ ghi `Confluence site URL`) và in thêm
+dòng cuối:
 
 ```
 Reachable on this site: Confluence, Jira
 ```
 
-Nếu dòng đó **không có chữ Jira** thì token không có quyền Jira → mọi test bên
-dưới sẽ fail ở Phase 0, và cần tạo token mới tại
-<https://id.atlassian.com/manage-profile/security/api-tokens>.
+Thiếu chữ `Jira` nghĩa là token không có quyền Jira → tạo token mới tại
+<https://id.atlassian.com/manage-profile/security/api-tokens>. Nhập lại đúng
+site/email/token cũ là được, nó ghi đè đúng host chứ không tạo trùng.
 
-Nhập lại đúng site/email/token cũ là được, nó ghi đè đúng host chứ không tạo trùng.
-
-### 0.2. Build binary mới
-
-```bash
-make build
-```
-
-Ra `./bin/acli-plus`. Các lệnh dưới đây giả định bạn dùng bản này:
-
-```bash
-export ACLI=./bin/acli-plus
-```
-
-Nếu đã cài vào PATH thì `export ACLI=acli-plus`.
+**Không cần khai báo site ở đâu cả.** Lệnh Jira không có URL để suy ra host, nên
+khi chỉ có đúng 1 site đã đăng ký, acli-plus tự dùng site đó. Chỉ khi đăng ký
+nhiều site mới cần `--site`.
 
 ### 0.3. Chọn project để test
 
@@ -57,11 +70,18 @@ dùng project thật. Xem có gì:
 $ACLI jira project list
 ```
 
-Rồi đặt biến cho tiện copy-paste cả bài:
+Trên site của bạn hiện có đúng một project:
+
+```
+KEY  NAME       TYPE      STYLE     LEAD
+KAN  acli-plus  software  next-gen  Trần Thành
+```
+
+Đặt biến cho tiện copy-paste cả bài:
 
 ```bash
-export P=TEAM          # thay bằng project key thật của bạn
-export TYPE=Task       # đổi nếu project của bạn không có type "Task"
+export P=KAN           # project key của bạn
+export TYPE=Task       # đổi nếu project không có type "Task"
 ```
 
 Kiểm tra type nào hợp lệ: mở project trong Jira, hoặc thử `create --dry-run` rồi
@@ -112,8 +132,11 @@ Kết quả cuối:
 
 ```
 == Summary
-64 passed, 0 failed, 3 skipped
+29 passed, 0 failed, 3 skipped
 ```
+
+Số case SKIP thay đổi theo site: board Kanban không có sprint, project rỗng thì
+không có gì để `edit`/`delete` dry-run. SKIP là bình thường, chỉ FAIL mới đáng lo.
 
 Exit code `0` khi mọi case pass, `1` nếu có case fail. Ticket script tạo ra đều
 có label `acli-plus-e2e` — nếu script bị `kill -9` giữa chừng, dọn tay bằng:
@@ -137,9 +160,9 @@ $ACLI jira workitem delete --jql "project = $P AND labels = acli-plus-e2e" --yes
 | 2.7 | `$ACLI jira field list --custom` | Chỉ field custom (`customfield_*`) |
 | 2.8 | `$ACLI jira field list --query point` | Lọc theo tên — đây là cách tìm `customfield_NNNNN` |
 | 2.9 | `$ACLI jira board search --project $P` | Bảng `ID NAME TYPE PROJECT`, hoặc `no results` nếu project không có board |
-| 2.10 | `$ACLI jira board list-sprints --board 1` | Sprint của board (thay `1` bằng ID ở 2.9). Kanban board → `no results` |
-| 2.11 | `$ACLI jira board list-sprints --board 1 --state active` | Chỉ sprint đang chạy |
-| 2.12 | `$ACLI jira sprint list-workitems --sprint 1` | Ticket trong sprint |
+| 2.10 | `$ACLI jira board list-sprints --board 1` | Sprint của board (thay `1` bằng ID ở 2.9). **Board Kanban** → `this board does not use sprints (Kanban boards have none): board 1` — đây là kết quả **đúng**, sprint là khái niệm của Scrum. Board `KAN` của bạn là Kanban nên sẽ ra thông báo này |
+| 2.11 | `$ACLI jira board list-sprints --board 1 --state active` | Chỉ sprint đang chạy (cần board Scrum) |
+| 2.12 | `$ACLI jira sprint list-workitems --sprint 1` | Ticket trong sprint (cần board Scrum) |
 | 2.13 | `$ACLI jira filter list` | Filter của bạn + favourite |
 | 2.14 | `$ACLI jira filter list --favourites` | Chỉ favourite |
 | 2.15 | `$ACLI jira filter search --name sprint` | Filter toàn site khớp tên |
@@ -430,13 +453,15 @@ Nhớ xoá `acli-plus.yaml` sau khi test nếu không muốn commit.
 
 | # | Lệnh | Kỳ vọng | Exit |
 |---|---|---|---|
-| 11.1 | `$ACLI jira workitem view TEAM-1 --site chua-dang-ky.example.com` | `no credentials for host; run 'acli-plus setup'` | 1 |
+| 11.1 | `$ACLI jira workitem view $P-1 --site chua-dang-ky.example.com` | `no credentials for host; run 'acli-plus setup' (host chua-dang-ky.example.com)` | 1 |
+| 11.1b | Đăng ký ≥2 site rồi chạy `$ACLI jira project list` | `several sites are registered; pass --site to choose one (registered: a..., b...)` — không đoán bừa | 1 |
 | 11.2 | `$ACLI jira workitem view NOTAKEY` | `not a work item key (expected e.g. TEAM-123)...` | 1 |
 | 11.3 | `$ACLI jira workitem view $P-999999` | `work item not found: TEAM-999999` | 1 |
 | 11.4 | `$ACLI jira workitem search` | `a JQL query is required (--jql)` | 1 |
 | 11.5 | `$ACLI jira workitem search --jql "cú pháp sai !!!"` | Lỗi JQL của Jira được in nguyên văn | 1 |
 | 11.6 | `$ACLI jira workitem create -p $P -s "thiếu type"` | `--type is required to create a work item` | 1 |
 | 11.7 | `$ACLI jira workitem edit -s x` | `no work items selected: pass a key, --key, or --jql` | 1 |
+| 11.7b | `$ACLI jira workitem edit --jql "project = $P AND labels = khong-ton-tai" -s x` | `the JQL query matched no work items: ...` — **khác** 11.7: query chạy được nhưng không khớp gì | 1 |
 | 11.8 | `$ACLI jira workitem create -p $P -t $TYPE -s x --field "Không Có=1"` | `field not found: "Không Có"` | 1 |
 | 11.9 | `$ACLI jira workitem create -p $P -t $TYPE -s x --field "Story Points=abc"` | `field Story Points: expects a number, got "abc"` | 1 |
 | 11.10 | `$ACLI jira workitem create -p $P -t $TYPE -s x --field "thiếu bằng"` | `--field expects name=value` | 1 |

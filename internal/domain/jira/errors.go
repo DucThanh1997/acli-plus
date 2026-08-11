@@ -20,6 +20,11 @@ var ErrBoardNotFound = errors.New("board not found")
 // ErrSprintNotFound indicates no sprint matched the given name or id.
 var ErrSprintNotFound = errors.New("sprint not found")
 
+// ErrBoardHasNoSprints indicates the board is a Kanban board. Sprints are a
+// Scrum concept, and the Agile API rejects the request outright rather than
+// answering with an empty list.
+var ErrBoardHasNoSprints = errors.New("this board does not use sprints (Kanban boards have none)")
+
 // ErrFieldNotFound indicates a field name could not be mapped to a field id.
 var ErrFieldNotFound = errors.New("field not found")
 

@@ -19,7 +19,11 @@ const pageSize = 50
 // until it has limit of them or the API reports the last page. Jira's list
 // endpoints share this envelope, so every listing here pages the same way
 // instead of silently returning only the first page.
-func (c *Client) pagedValues(ctx context.Context, path string, query url.Values, limit int) ([]json.RawMessage, error) {
+//
+// The HTTP status of the failing request is returned alongside the error so
+// callers can map it onto the right domain error, the same way the single-shot
+// requests do.
+func (c *Client) pagedValues(ctx context.Context, path string, query url.Values, limit int) ([]json.RawMessage, int, error) {
 	if limit <= 0 {
 		limit = defaultPageLimit
 	}
@@ -40,8 +44,9 @@ func (c *Client) pagedValues(ctx context.Context, path string, query url.Values,
 			MaxRes  int               `json:"maxResults"`
 			StartAt int               `json:"startAt"`
 		}
-		if _, err := c.do(ctx, http.MethodGet, path, page, nil, &out); err != nil {
-			return nil, err
+		status, err := c.do(ctx, http.MethodGet, path, page, nil, &out)
+		if err != nil {
+			return nil, status, err
 		}
 
 		collected = append(collected, out.Values...)
@@ -56,7 +61,7 @@ func (c *Client) pagedValues(ctx context.Context, path string, query url.Values,
 	if len(collected) > limit {
 		collected = collected[:limit]
 	}
-	return collected, nil
+	return collected, http.StatusOK, nil
 }
 
 // decodeEach unmarshals raw rows into T via the supplied converter.

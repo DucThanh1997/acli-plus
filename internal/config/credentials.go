@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"gopkg.in/yaml.v3"
 )
@@ -55,6 +56,21 @@ func (s *CredentialStore) Get(host string) (Credential, bool, error) {
 	}
 	cred, ok := file.Hosts[host]
 	return cred, ok, nil
+}
+
+// Hosts returns the registered hosts in a stable order. It is how a command
+// that carries no URL of its own can still find the site to talk to.
+func (s *CredentialStore) Hosts() ([]string, error) {
+	file, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+	hosts := make([]string, 0, len(file.Hosts))
+	for host := range file.Hosts {
+		hosts = append(hosts, host)
+	}
+	sort.Strings(hosts)
+	return hosts, nil
 }
 
 // Save upserts the credential for host, creating the store with secure

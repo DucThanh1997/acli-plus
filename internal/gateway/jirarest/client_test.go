@@ -391,6 +391,36 @@ func TestBoardsUseTheAgileAPI(t *testing.T) {
 	}
 }
 
+// TestKanbanBoardHasNoSprints covers a real answer from the Agile API: asking a
+// Kanban board for sprints is a 400, not an empty list, and the raw message
+// reads like a bug in the tool rather than a property of the board.
+func TestKanbanBoardHasNoSprints(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"errorMessages":["The board does not support sprints"],"errors":{}}`)
+	})
+
+	_, err := client.ListSprints(context.Background(), 1, "")
+	if !errors.Is(err, jira.ErrBoardHasNoSprints) {
+		t.Fatalf("error = %v, want ErrBoardHasNoSprints", err)
+	}
+	if !strings.Contains(err.Error(), "Kanban") {
+		t.Errorf("error = %v, want it to explain why", err)
+	}
+}
+
+func TestListSprintsOnAMissingBoard(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, `{"errorMessages":["Board does not exist"]}`)
+	})
+
+	_, err := client.ListSprints(context.Background(), 999, "")
+	if !errors.Is(err, jira.ErrBoardNotFound) {
+		t.Errorf("error = %v, want ErrBoardNotFound", err)
+	}
+}
+
 func TestListAttachmentsReadsTheField(t *testing.T) {
 	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("fields"); got != "attachment" {

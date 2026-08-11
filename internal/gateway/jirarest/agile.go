@@ -3,6 +3,7 @@ package jirarest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -24,7 +25,7 @@ func (c *Client) SearchBoards(ctx context.Context, q jira.BoardQuery) ([]jira.Bo
 		query.Set("type", q.Type)
 	}
 
-	raws, err := c.pagedValues(ctx, agileBasePath+"/board", query, q.MaxResults)
+	raws, _, err := c.pagedValues(ctx, agileBasePath+"/board", query, q.MaxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -42,20 +43,28 @@ func (c *Client) ListSprints(ctx context.Context, boardID int, state string) ([]
 	}
 
 	path := agileBasePath + "/board/" + strconv.Itoa(boardID) + "/sprint"
-	raws, err := c.pagedValues(ctx, path, query, 0)
+	raws, status, err := c.pagedValues(ctx, path, query, 0)
 	if err != nil {
-		if strings.Contains(err.Error(), "404") {
-			return nil, jira.ErrBoardNotFound
+		switch {
+		case status == http.StatusNotFound:
+			return nil, fmt.Errorf("%w: %d", jira.ErrBoardNotFound, boardID)
+		// A Kanban board has no sprint concept at all, and the Agile API says so
+		// with a 400 rather than an empty list. Name the reason instead of
+		// passing a raw API error to the user.
+		case status == http.StatusBadRequest && strings.Contains(err.Error(), "does not support sprints"):
+			return nil, fmt.Errorf("%w: board %d", jira.ErrBoardHasNoSprints, boardID)
 		}
 		return nil, err
 	}
+
 	sprints, err := decodeEach(raws, func(dto sprintDTO, _ json.RawMessage) jira.Sprint {
 		return dto.toDomain()
 	})
 	if err != nil {
 		return nil, err
 	}
-	// A Kanban board has no sprints; report that rather than an empty table.
+	// originBoardId is absent on some responses; fill it so the caller always
+	// knows which board a sprint came from.
 	for i := range sprints {
 		if sprints[i].BoardID == 0 {
 			sprints[i].BoardID = boardID

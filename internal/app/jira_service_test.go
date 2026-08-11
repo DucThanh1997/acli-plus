@@ -451,8 +451,31 @@ func TestResolveTargets(t *testing.T) {
 	})
 
 	t.Run("selecting nothing is an error", func(t *testing.T) {
-		if _, err := newTestService(&fakeJira{}).Resolve(context.Background(), Targets{}); err == nil {
-			t.Error("want an error when neither keys nor JQL are given")
+		_, err := newTestService(&fakeJira{}).Resolve(context.Background(), Targets{})
+		if err == nil {
+			t.Fatal("want an error when neither keys nor JQL are given")
+		}
+		if !strings.Contains(err.Error(), "pass --key or --jql") {
+			t.Errorf("error = %v, want it to say what to pass", err)
+		}
+	})
+
+	// A query that ran and matched nothing is a different problem from not
+	// selecting anything; telling the user to "pass --jql" when they just did
+	// sends them looking in the wrong place.
+	t.Run("a JQL query that matches nothing says so", func(t *testing.T) {
+		gw := &fakeJira{searchFn: func(jira.SearchInput) (jira.SearchPage, error) {
+			return jira.SearchPage{}, nil
+		}}
+		_, err := newTestService(gw).Resolve(context.Background(), Targets{JQL: "project = EMPTY"})
+		if err == nil {
+			t.Fatal("want an error when the query matches nothing")
+		}
+		if !strings.Contains(err.Error(), "matched no work items") {
+			t.Errorf("error = %v, want it to say the query matched nothing", err)
+		}
+		if !strings.Contains(err.Error(), "project = EMPTY") {
+			t.Errorf("error = %v, want it to echo the query", err)
 		}
 	})
 }

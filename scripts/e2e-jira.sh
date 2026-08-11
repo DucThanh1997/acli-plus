@@ -235,17 +235,25 @@ expect_ok "workitem search --paginate" jira workitem search --jql "project = $PR
 
 expect_ok "board search" jira board search --project "$PROJECT"
 BOARD=$(printf '%s' "$LAST_OUTPUT" | awk 'NR==2 {print $1}' | grep -E '^[0-9]+$' || true)
-if [ -n "$BOARD" ]; then
-	expect_ok "board list-sprints" jira board list-sprints --board "$BOARD"
-	SPRINT=$(printf '%s' "$LAST_OUTPUT" | awk 'NR==2 {print $1}' | grep -E '^[0-9]+$' || true)
-	if [ -n "$SPRINT" ]; then
-		expect_ok "sprint list-workitems" jira sprint list-workitems --sprint "$SPRINT"
-	else
-		skip "sprint list-workitems" "board $BOARD has no sprints"
-	fi
-else
+SPRINT=""
+if [ -z "$BOARD" ]; then
 	skip "board list-sprints" "no board in $PROJECT"
-	skip "sprint list-workitems" "no board in $PROJECT"
+elif LAST_OUTPUT=$(acli jira board list-sprints --board "$BOARD" 2>&1); then
+	pass "board list-sprints"
+	show
+	SPRINT=$(printf '%s' "$LAST_OUTPUT" | awk 'NR==2 {print $1}' | grep -E '^[0-9]+$' || true)
+# A Kanban board genuinely has no sprints, so the right result is the explanation
+# rather than a table — what would be wrong is a raw API error.
+elif printf '%s' "$LAST_OUTPUT" | grep -qF "does not use sprints"; then
+	pass "board list-sprints explains that board $BOARD is Kanban"
+else
+	fail "board list-sprints" "$LAST_OUTPUT"
+fi
+
+if [ -n "$SPRINT" ]; then
+	expect_ok "sprint list-workitems" jira sprint list-workitems --sprint "$SPRINT"
+else
+	skip "sprint list-workitems" "no sprint to look into"
 fi
 
 # --------------------------------------------------------- phase 2: dry runs --
@@ -256,10 +264,19 @@ BEFORE=$(acli jira workitem search --jql "project = $PROJECT" --paginate 2>/dev/
 
 expect_out "create --dry-run" "[dry-run]" \
 	jira workitem create -p "$PROJECT" -t "$TYPE" -s "e2e dry run" --dry-run
-expect_out "edit --dry-run" "[dry-run]" \
-	jira workitem edit --jql "project = $PROJECT" -s "e2e dry run" --dry-run
-expect_out "delete --dry-run does not prompt" "[dry-run]" \
-	jira workitem delete --jql "project = $PROJECT" --dry-run
+
+# edit and delete need something to act on, and an empty project has nothing.
+if [ "$BEFORE" -gt 0 ]; then
+	expect_out "edit --dry-run" "[dry-run]" \
+		jira workitem edit --jql "project = $PROJECT" -s "e2e dry run" --dry-run
+	expect_out "delete --dry-run does not prompt" "[dry-run]" \
+		jira workitem delete --jql "project = $PROJECT" --dry-run
+else
+	skip "edit --dry-run" "$PROJECT has no work items yet"
+	skip "delete --dry-run does not prompt" "$PROJECT has no work items yet"
+	expect_err "a JQL query matching nothing says so" "matched no work items" \
+		jira workitem edit --jql "project = $PROJECT" -s "x" --dry-run
+fi
 
 AFTER=$(acli jira workitem search --jql "project = $PROJECT" --paginate 2>/dev/null | wc -l | tr -d ' ')
 if [ "$BEFORE" = "$AFTER" ]; then

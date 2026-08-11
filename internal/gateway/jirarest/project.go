@@ -31,7 +31,7 @@ func (c *Client) ListProjects(ctx context.Context, q jira.ProjectQuery) ([]jira.
 		query.Set("status", q.Status)
 	}
 
-	raws, err := c.pagedValues(ctx, apiBasePath+"/project/search", query, q.MaxResults)
+	raws, _, err := c.pagedValues(ctx, apiBasePath+"/project/search", query, q.MaxResults)
 	if err != nil {
 		return nil, err
 	}

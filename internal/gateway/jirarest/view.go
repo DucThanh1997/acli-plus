@@ -23,7 +23,7 @@ func (c *Client) SearchFilters(ctx context.Context, q jira.FilterQuery) ([]jira.
 		query.Set("accountId", q.AccountID)
 	}
 
-	raws, err := c.pagedValues(ctx, apiBasePath+"/filter/search", query, q.MaxResults)
+	raws, _, err := c.pagedValues(ctx, apiBasePath+"/filter/search", query, q.MaxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (c *Client) SearchDashboards(ctx context.Context, q jira.DashboardQuery) ([
 		query.Set("dashboardName", q.Name)
 	}
 
-	raws, err := c.pagedValues(ctx, apiBasePath+"/dashboard/search", query, q.MaxResults)
+	raws, _, err := c.pagedValues(ctx, apiBasePath+"/dashboard/search", query, q.MaxResults)
 	if err != nil {
 		return nil, err
 	}

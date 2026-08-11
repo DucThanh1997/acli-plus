@@ -43,15 +43,24 @@ type Targets struct {
 // query when one is given.
 func (s *JiraService) Resolve(ctx context.Context, in Targets) ([]string, error) {
 	keys := append([]string(nil), in.Keys...)
-	if strings.TrimSpace(in.JQL) != "" {
-		page, err := s.SearchWorkItems(ctx, SearchRequest{JQL: in.JQL, Fields: []string{"summary"}, Paginate: true})
+
+	jql := strings.TrimSpace(in.JQL)
+	if jql != "" {
+		page, err := s.SearchWorkItems(ctx, SearchRequest{JQL: jql, Fields: []string{"summary"}, Paginate: true})
 		if err != nil {
 			return nil, err
 		}
 		for _, item := range page {
 			keys = append(keys, item.Key)
 		}
+		// A query that ran fine but matched nothing is a different problem from
+		// forgetting to select anything, and saying "pass --jql" to someone who
+		// just passed --jql sends them looking in the wrong place.
+		if len(keys) == 0 {
+			return nil, fmt.Errorf("the JQL query matched no work items: %s", jql)
+		}
 	}
+
 	if len(keys) == 0 {
 		return nil, fmt.Errorf("no work items selected: pass --key or --jql")
 	}
