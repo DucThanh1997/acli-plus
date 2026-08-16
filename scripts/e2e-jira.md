@@ -57,9 +57,28 @@ Thiếu chữ `Jira` nghĩa là token không có quyền Jira → tạo token m�
 <https://id.atlassian.com/manage-profile/security/api-tokens>. Nhập lại đúng
 site/email/token cũ là được, nó ghi đè đúng host chứ không tạo trùng.
 
-**Không cần khai báo site ở đâu cả.** Lệnh Jira không có URL để suy ra host, nên
-khi chỉ có đúng 1 site đã đăng ký, acli-plus tự dùng site đó. Chỉ khi đăng ký
-nhiều site mới cần `--site`.
+### 0.2b. Config hai tầng — token chung, site riêng theo repo
+
+Dễ nhầm nên nói rõ: **chỉ token là dùng chung**, còn chọn site vẫn là per-project.
+
+| Tầng | Ở đâu | Chung hay riêng |
+|---|---|---|
+| Token (bí mật) | `~/.config/acli-plus/credentials.yaml`, key theo host | **Chung** — nhiều repo cùng site dùng chung 1 token, và token **không bao giờ** được ghi vào file trong repo (tránh commit lên git) |
+| Site + default (không bí mật) | `acli-plus.yaml` trong repo, commit được | **Riêng từng repo** — repo A trỏ site client A, repo B trỏ client B |
+
+Thứ tự chọn site:
+
+1. host trong URL truyền vào (vd `.../browse/KAN-1`)
+2. `--site`
+3. biến môi trường `ACLI_PLUS_SITE`
+4. `site:` trong `acli-plus.yaml` của thư mục hiện tại
+5. site duy nhất đã đăng ký, nếu chỉ có đúng 1
+
+Bước 5 tồn tại vì lệnh Jira không có URL để suy ra host — không có nó thì `jira
+project list` cũng phải kèm `--site`. Khi đăng ký **nhiều site**, bước 5 không
+chạy: acli-plus từ chối đoán và liệt kê các site để bạn chọn. Nên muốn cố định
+site cho một repo thì cứ tạo `acli-plus.yaml` — nó thắng bước 5. Xem
+[mục 10](#10-cấu-hình-theo-repo).
 
 ### 0.3. Chọn project để test
 
@@ -428,7 +447,10 @@ Chỉ chạy nếu bạn là Jira admin **và** chấp nhận để lại/xoá t
 
 ---
 
-## 10. Cấu hình theo repo
+## 10. Cấu hình riêng theo repo (`acli-plus.yaml`)
+
+Đây là tầng per-project ở [mục 0.2b](#02b-config-hai-tầng--token-chung-site-riêng-theo-repo):
+mỗi repo tự khai site và default của nó, **không chứa token**, commit thoải mái.
 
 ```bash
 cat > acli-plus.yaml <<EOF
@@ -445,7 +467,23 @@ EOF
 | 10.3 | `$ACLI jira board search` | Lọc theo `jira_project` |
 | 10.4 | Xoá `acli-plus.yaml`, chạy lại 10.1 | `--project is required to create a work item` |
 
-Nhớ xoá `acli-plus.yaml` sau khi test nếu không muốn commit.
+**Kiểm chứng nhiều repo trỏ nhiều site khác nhau** — đây là kịch bản mà design
+gốc muốn phục vụ (mỗi client một site, token nằm chung một store):
+
+```bash
+mkdir -p /tmp/repo-a /tmp/repo-b
+printf 'site: https://site-a.atlassian.net\njira_project: AAA\n' > /tmp/repo-a/acli-plus.yaml
+printf 'site: https://site-b.atlassian.net\njira_project: BBB\n' > /tmp/repo-b/acli-plus.yaml
+```
+
+| # | Lệnh | Kỳ vọng |
+|---|---|---|
+| 10.5 | `cd /tmp/repo-a && $ACLI jira project list` | Đi tới `site-a`; chưa đăng ký thì báo `no credentials for host ... (host site-a.atlassian.net)` — chứng tỏ nó đọc đúng file của repo A |
+| 10.6 | `cd /tmp/repo-b && $ACLI jira project list` | Đi tới `site-b` — cùng binary, khác repo, khác site |
+| 10.7 | `cd /tmp/repo-a && $ACLI jira project list --site <host thật>` | `--site` thắng file của repo |
+| 10.8 | `grep -r token /tmp/repo-*/acli-plus.yaml` | Không có kết quả — token **không bao giờ** nằm trong file repo |
+
+Nhớ `rm acli-plus.yaml` sau khi test nếu không muốn commit vào repo này.
 
 ---
 
