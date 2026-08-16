@@ -10,7 +10,7 @@ uses — so you get both halves of an Atlassian site from one binary, and `acli`
 itself does not need to be installed.
 
 ```bash
-acli-plus create docs/onboarding.md https://acme.atlassian.net/wiki/spaces/DEV/pages/98765/Handbook
+acli-plus confluence page create docs/onboarding.md https://acme.atlassian.net/wiki/spaces/DEV/pages/98765/Handbook
 # created "onboarding" -> https://acme.atlassian.net/wiki/pages/viewpage.action?pageId=120033
 
 acli-plus jira workitem create -p TEAM -t Task -s "Fix login redirect" -a @me
@@ -155,18 +155,18 @@ rm -rf ~/.config/acli-plus                                                      
 acli-plus setup
 
 # 2. Create a page as a child of a parent page (paste the PARENT's URL)
-acli-plus create onboarding.md \
+acli-plus confluence page create onboarding.md \
   https://acme.atlassian.net/wiki/spaces/DEV/pages/98765/Handbook
 
 # 3. Update that page later (paste the PAGE's own URL)
-acli-plus update onboarding.md \
+acli-plus confluence page update onboarding.md \
   https://acme.atlassian.net/wiki/spaces/DEV/pages/120033/Onboarding
 
 # 4. Preview before touching anything
-acli-plus update onboarding.md <page-url> --dry-run
+acli-plus confluence page update onboarding.md <page-url> --dry-run
 
 # 5. Delete (moves to trash — reversible)
-acli-plus delete https://acme.atlassian.net/wiki/spaces/DEV/pages/120033/Onboarding
+acli-plus confluence page delete https://acme.atlassian.net/wiki/spaces/DEV/pages/120033/Onboarding
 
 # 6. Same site, Jira side — no extra login
 acli-plus jira workitem create -p TEAM -t Bug -s "Login loops on Safari" -a @me
@@ -181,9 +181,10 @@ acli-plus jira workitem transition TEAM-142 --status "In Progress"
 | Command | Arguments | What it does |
 |---|---|---|
 | [`setup`](#acli-plus-setup) | — | Stores site URL, email, API token for one Atlassian host. |
-| [`create`](#acli-plus-create-filemd-url) | `<file.md> <url>` | `<url>` is the **parent** (page or space). Creates a child page. |
-| [`update`](#acli-plus-update-filemd-url) | `<file.md> <url>` | `<url>` is the **target page**. Overwrites it in place. |
-| [`delete`](#acli-plus-delete-url) | `<url>` | Moves the page at `<url>` to the trash. |
+| [`confluence page create`](#acli-plus-confluence-page-create-filemd-url) | `<file.md> <url>` | `<url>` is the **parent** (page or space). Creates a child page. |
+| [`confluence page update`](#acli-plus-confluence-page-update-filemd-url) | `<file.md> <url>` | `<url>` is the **target page**. Overwrites it in place. |
+| [`confluence page delete`](#acli-plus-confluence-page-delete-url) | `<url>` | Moves the page at `<url>` to the trash. |
+| [`confluence page view`](#acli-plus-confluence-page-view-url) | `<url>` | Shows the page's fields and its stored body. Reads only. |
 | [`jira`](#jira-commands) | *see below* | Work items, projects, boards, sprints, filters, dashboards. |
 | [`version`](#acli-plus-version) | — | Prints the version. |
 
@@ -213,7 +214,7 @@ Reachable on this site: Confluence, Jira
   (Basic auth = account email + API token). Tokens are stored locally only and
   never written into project files.
 
-### `acli-plus create <file.md> <url>`
+### `acli-plus confluence page create <file.md> <url>`
 
 `<url>` is the **parent**:
 
@@ -222,13 +223,13 @@ Reachable on this site: Confluence, Jira
 
 ```bash
 # child of a specific page
-acli-plus create guide.md https://acme.atlassian.net/wiki/spaces/DEV/pages/98765/Handbook
+acli-plus confluence page create guide.md https://acme.atlassian.net/wiki/spaces/DEV/pages/98765/Handbook
 
 # at the root of a space
-acli-plus create guide.md https://acme.atlassian.net/wiki/spaces/DEV
+acli-plus confluence page create guide.md https://acme.atlassian.net/wiki/spaces/DEV
 
 # preview only
-acli-plus create guide.md https://acme.atlassian.net/wiki/spaces/DEV --dry-run
+acli-plus confluence page create guide.md https://acme.atlassian.net/wiki/spaces/DEV --dry-run
 ```
 
 **Idempotent by title.** Confluence titles are unique per space, so `create`
@@ -236,16 +237,16 @@ first looks for a page with the same title *anywhere in that space*. If one
 exists, it is **updated** instead of duplicated — re-running `create` in a script
 is safe.
 
-### `acli-plus update <file.md> <url>`
+### `acli-plus confluence page update <file.md> <url>`
 
 `<url>` must identify a **specific page** (it needs a page id). The page is
 overwritten in place and can be renamed — the new title comes from the file
 (see [Titles and frontmatter](#titles-and-frontmatter)).
 
 ```bash
-acli-plus update guide.md https://acme.atlassian.net/wiki/spaces/DEV/pages/120033/Guide
-acli-plus update guide.md 120033 --site acme.atlassian.net      # bare page id
-acli-plus update guide.md <page-url> --yes                      # no prompts (CI)
+acli-plus confluence page update guide.md https://acme.atlassian.net/wiki/spaces/DEV/pages/120033/Guide
+acli-plus confluence page update guide.md 120033 --site acme.atlassian.net      # bare page id
+acli-plus confluence page update guide.md <page-url> --yes                      # no prompts (CI)
 ```
 
 **Fallback:** if the page id no longer resolves (deleted, purged), the content is
@@ -256,13 +257,13 @@ warning: target page id not found; inserted into space DEV
 created "Guide" -> https://acme.atlassian.net/wiki/pages/viewpage.action?pageId=120099
 ```
 
-### `acli-plus delete <url>`
+### `acli-plus confluence page delete <url>`
 
 Moves the page to the Confluence trash — reversible from the UI, not a purge.
 Asks for confirmation unless `--yes`/`--force`.
 
 ```bash
-acli-plus delete https://acme.atlassian.net/wiki/spaces/DEV/pages/120033/Guide
+acli-plus confluence page delete https://acme.atlassian.net/wiki/spaces/DEV/pages/120033/Guide
 ```
 
 ```
@@ -271,6 +272,36 @@ deleted (moved to trash) "Guide"
 ```
 
 Answering anything but `y`/`yes` aborts with `aborted; no changes made`.
+
+### `acli-plus confluence page view <url>`
+
+The only read-only page command. Writes report what they did; this reports what
+a page currently holds, which is how you check a publish from a script.
+
+```bash
+acli-plus confluence page view 120033 --site acme.atlassian.net
+```
+
+```
+Id:         120033
+Title:      Guide
+Space id:   100
+Version:    3 (via acli-plus)
+URL:        https://acme.atlassian.net/wiki/pages/viewpage.action?pageId=120033
+
+<h1>Guide</h1><p>Body with <strong>bold</strong>.</p>
+```
+
+The body comes back in **Confluence storage format** (XHTML) exactly as stored —
+there is no reverse renderer back to Markdown, so what you see is what the API
+holds. `--json` prints the whole page for scripts.
+
+`<url>` must identify one page: a page URL or a bare page id. A space URL names
+no single page and is refused.
+
+> **Note:** the `viewpage.action` link printed after a write is *not* accepted
+> back as input — its own parser reads `viewpage.action` as the page id. Pass the
+> numeric id (or the original `/spaces/KEY/pages/ID/...` URL) instead.
 
 ### `acli-plus version`
 
@@ -369,6 +400,20 @@ acli-plus jira workitem create -p TEAM -t Story -s "…" \
 
 An empty value (`--field Severity=`) clears the field. Ambiguous names are an
 error listing the candidate ids, never a guess.
+
+A few Jira fields contradict their own schema, and `--field` cannot help there.
+Sprint is the one you will meet: it reads back as an array of objects but only
+accepts a bare number on write, so shaping it from its `array` schema always
+produces something Jira rejects. `--field-json` sends exactly what you type:
+
+```bash
+# --field "Sprint=1" sends ["1"] and fails; this sends 1
+acli-plus jira workitem edit TEAM-1 --field-json "Sprint=1"
+```
+
+It takes any JSON value — `"Labels=[\"a\",\"b\"]"`, an object, a number — and
+validates it locally, so a typo is reported before the request goes out. Use
+`--field` everywhere else; it is the one that knows the field's type.
 
 People can be given as `@me`, an email, a display name, or an account id. A name
 that matches several accounts is reported rather than picked.
@@ -476,8 +521,8 @@ Available on every command.
 | `--site` | Atlassian site (host or full URL) to use when the argument carries no host — e.g. a bare page id or a bare work item key. |
 
 ```bash
-acli-plus update notes.md 120033 --site https://acme.atlassian.net --yes
-acli-plus delete <page-url> --dry-run
+acli-plus confluence page update notes.md 120033 --site https://acme.atlassian.net --yes
+acli-plus confluence page delete <page-url> --dry-run
 acli-plus jira workitem delete TEAM-1 --dry-run
 acli-plus jira workitem delete TEAM-1 --yes    # no prompt, for scripts
 ```
@@ -522,7 +567,7 @@ title: Onboarding Guide      # optional; without it the title is "onboarding"
 Body content starts here…
 ```
 
-So `acli-plus create onboarding.md <url>` with no frontmatter creates a page
+So `acli-plus confluence page create onboarding.md <url>` with no frontmatter creates a page
 titled `onboarding`. Since `update` also applies the title, renaming a page is
 just changing `title:` and re-running `update`.
 
@@ -623,9 +668,9 @@ acli-plus jira workitem create -t Task -s "Fix login redirect"
 
 ## Conflict handling
 
-Every write stamps the Confluence version message with `via acli-plus`. On an
-overwrite, if the page's latest version was **not** stamped that way — someone
-edited it in the Confluence UI — the command stops and asks:
+An **update** stamps the Confluence version message with `via acli-plus`. On the
+next overwrite, if the page's latest version is **not** stamped that way —
+someone edited it in the Confluence UI — the command stops and asks:
 
 ```
 Page "Guide" (id 120033, version 7) was modified outside acli-plus. Overwrite? [y/N]:
@@ -635,6 +680,23 @@ Decline and nothing is written (`aborted; no changes made`). Pass `--yes` or
 `--force` to skip the check, or `--dry-run` to inspect first. Confluence keeps
 full version history either way, so an accidental overwrite is recoverable from
 the page's version list.
+
+### The first update after a create always asks
+
+A **create** cannot stamp anything: Confluence's create API accepts no version
+message, so a page acli-plus just published sits at version 1 with an empty
+message — indistinguishable from a page typed in the browser. The very next
+update therefore warns about a page acli-plus wrote itself:
+
+```bash
+acli-plus confluence page create guide.md <spaceUrl>   # version 1, unstamped
+acli-plus confluence page update guide.md 120033       # asks, despite being ours
+acli-plus confluence page update guide.md 120033 --yes # …so scripts pass --yes
+```
+
+From the second update onward the stamp is present and the prompt stops. This is
+a limitation of the API, not a setting — the check is deliberately stateless, so
+there is nowhere else to record authorship.
 
 ---
 
@@ -699,6 +761,7 @@ parser:
 main.go
 internal/
   cmd/                      handler layer — Cobra commands, flags, output
+    confluence/             the 'confluence' command tree (injected via Deps)
     jira/                   the 'jira' command tree (injected via Deps)
   app/                      use cases — pages, setup, work items, catalogs
   domain/confluence/        entities, ports (Gateway), URL parsing, errors
@@ -707,23 +770,33 @@ internal/
   gateway/jirarest/         REST adapter for /rest/api/3 and /rest/agile/1.0
   markdown/                 Markdown → Confluence storage format and → ADF (pure)
   config/                   credential store, host resolution, project file
-scripts/                    build.sh, publish-release.sh, push-all.sh
+scripts/                    build/release helpers + the two e2e runs
 ```
 
 `domain` and `markdown` have no I/O, so they are unit-tested directly; `app` is
 tested against fake gateways, `gateway/jirarest` against an `httptest` server,
 and `cmd/jira` asserts the command tree still matches acli's.
 
-`make test` never touches the network. To check the Jira commands against a real
-site, [`scripts/e2e-jira.sh`](scripts/e2e-jira.sh) drives every one of them and
-deletes what it created on the way out;
-[`scripts/e2e-jira.md`](scripts/e2e-jira.md) is the same run written out case by
-case for checking things by hand.
+`make test` never touches the network. Two end-to-end scripts drive the real
+thing instead, each cleaning up what it created on the way out, and each paired
+with a Markdown runbook of the same cases for checking by hand.
+
+| Script | Runbook | Needs |
+|---|---|---|
+| [`scripts/e2e-jira.sh`](scripts/e2e-jira.sh) | [`e2e-jira.md`](scripts/e2e-jira.md) | `--project` — a scratch Jira project |
+| [`scripts/e2e-confluence.sh`](scripts/e2e-confluence.sh) | [`e2e-confluence.md`](scripts/e2e-confluence.md) | `--parent` — a scratch space or page URL |
 
 ```bash
-./scripts/e2e-jira.sh --project TEAM --read-only   # reads and dry-runs only
-./scripts/e2e-jira.sh --project TEAM               # full run, asks before writing
+./scripts/e2e-jira.sh --project TEAM --read-only              # reads and dry-runs only
+./scripts/e2e-jira.sh --project TEAM                          # full run, asks before writing
+
+./scripts/e2e-confluence.sh --parent <spaceUrl> --read-only
+./scripts/e2e-confluence.sh --parent <spaceUrl>
 ```
+
+Both take `--keep` to leave the test data behind, `--verbose` to print each
+command's output, and `--yes` for unattended runs. Exit code is 0 only when
+every check passed.
 
 ---
 
