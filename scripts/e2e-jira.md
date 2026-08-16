@@ -49,7 +49,7 @@ tìm-thay 3 thứ:
 |---|---|
 | `KAN` | project key của bạn — xem [mục 0.3](#03-chọn-project-để-test) |
 | `Task` | một type hợp lệ của project đó |
-| `KAN-16` … `KAN-22` | key ticket có thật — xem [mục 6](#6-sửa-workflow-người-phụ-trách) |
+| `<key A>`, `<key B>` | key hai ticket do chính [mục 6](#6-sửa-workflow-người-phụ-trách) tạo ra |
 
 ### 0.2. Có cần setup lại không?
 
@@ -117,8 +117,24 @@ KAN  acli-plus  software  next-gen  Trần Thành
 Doc dùng luôn `KAN` nên các lệnh bên dưới copy là chạy. Project khác thì tìm-thay
 `KAN` như ở [mục 0.1b](#01b-site-hoặc-project-của-bạn-khác).
 
-Kiểm tra type nào hợp lệ: mở project trong Jira, hoặc thử `create --dry-run` rồi
-`create` thật — nếu sai type, Jira trả lỗi có liệt kê type hợp lệ.
+Xem project có những type nào — sai type thì Jira **chỉ** báo `issuetype: Specify
+a valid issue type`, không hề liệt kê cái đúng, nên cứ lấy danh sách trước:
+
+```bash
+acli-plus jira project view KAN --json | python3 -c 'import json,sys; [print(t["name"], "| subtask =", t["subtask"]) for t in json.load(sys.stdin)["issueTypes"]]'
+```
+
+Project `KAN` trả về:
+
+```
+Epic | subtask = False
+Subtask | subtask = True
+Task | subtask = False
+Story | subtask = False
+Bug | subtask = False
+```
+
+Cột `subtask` quyết định `--parent` dùng ở tầng nào — xem [case 4.6](#4-tạo-work-item).
 
 ### 0.4. Những gì không test được tự động
 
@@ -161,15 +177,20 @@ Tuỳ chọn:
 ./scripts/e2e-jira.sh --project KAN --site acme.atlassian.net
 ```
 
-Kết quả cuối:
+Kết quả cuối có dạng:
 
 ```
 == Summary
-29 passed, 0 failed, 3 skipped
+30 passed, 0 failed, 1 skipped
 ```
 
-Số case SKIP thay đổi theo site: board Kanban không có sprint, project rỗng thì
-không có gì để `edit`/`delete` dry-run. SKIP là bình thường, chỉ FAIL mới đáng lo.
+Con số trên là lần chạy `--read-only` với `--project KAN`; chạy đầy đủ sẽ nhiều
+hơn. **Đừng lấy con số làm chuẩn** — nó đổi theo site và theo số case được thêm
+vào script. Chỉ `0 failed` mới là điều cần đúng.
+
+Số case SKIP thay đổi theo site: board Kanban không có sprint (đưa `--project
+SCR` thì case sprint hết SKIP), project rỗng thì không có gì để `edit`/`delete`
+dry-run. SKIP là bình thường, chỉ FAIL mới đáng lo.
 
 Exit code `0` khi mọi case pass, `1` nếu có case fail. Ticket script tạo ra đều
 có label `acli-plus-e2e` — nếu script bị `kill -9` giữa chừng, dọn tay bằng:
@@ -194,13 +215,41 @@ acli-plus jira workitem delete --jql "project = KAN AND labels = acli-plus-e2e" 
 | 2.8 | `acli-plus jira field list --query point` | Lọc theo tên — đây là cách tìm `customfield_NNNNN` |
 | 2.9 | `acli-plus jira board search --project KAN` | Bảng `ID NAME TYPE PROJECT`, hoặc `no results` nếu project không có board |
 | 2.10 | `acli-plus jira board list-sprints --board 1` | Sprint của board (thay `1` bằng ID ở 2.9). **Board Kanban** → `this board does not use sprints (Kanban boards have none): board 1` — đây là kết quả **đúng**, sprint là khái niệm của Scrum. Board `KAN` của bạn là Kanban nên sẽ ra thông báo này |
-| 2.11 | `acli-plus jira board list-sprints --board 1 --state active` | Chỉ sprint đang chạy (cần board Scrum) |
-| 2.12 | `acli-plus jira sprint list-workitems --sprint 1` | Ticket trong sprint (cần board Scrum) |
+| 2.11 | `acli-plus jira board list-sprints --board 2` | Board `2` (`SCR board`) là Scrum → ra `1  SCR Sprint 1  future`. Đây là ca đối chứng của 2.10 |
+| 2.12 | `acli-plus jira board list-sprints --board 2 --state active` | Lọc theo state; sprint chưa start thì `future`, nên `--state active` trả rỗng cho tới khi bạn start sprint trên web |
+| 2.12b | `acli-plus jira sprint list-workitems --sprint 1` | Ticket trong sprint — rỗng cho tới khi đưa ticket vào, xem [mục 2b](#2b-đưa-ticket-vào-sprint) |
 | 2.13 | `acli-plus jira filter list` | Filter của bạn + favourite |
 | 2.14 | `acli-plus jira filter list --favourites` | Chỉ favourite |
 | 2.15 | `acli-plus jira filter search --name sprint` | Filter toàn site khớp tên |
 | 2.16 | `acli-plus jira dashboard search` | Bảng dashboard |
 | 2.17 | `acli-plus jira workitem link --list-types` | `NAME INWARD OUTWARD` — thường có `Blocks`, `Relates` |
+
+### 2b. Đưa ticket vào sprint
+
+Field `Sprint` của Jira bất đối xứng: **đọc** ra là mảng object, nhưng **ghi**
+chỉ nhận một số trần. Nó khai schema là `array[json]`, nên `--field` — vốn suy ra
+hình dạng từ schema — luôn gói lại thành mảng và bị Jira từ chối:
+
+| Lệnh | Gửi lên | Kết quả |
+|---|---|---|
+| `--field "Sprint=1"` | `["1"]` | `400 The Sprint (id) must be a number` |
+| `--field-json "Sprint=1"` | `1` | ✅ `updated SCR-1` |
+
+Nên dùng `--field-json`, cờ này gửi nguyên văn JSON bạn viết, không suy diễn:
+
+```bash
+acli-plus jira workitem create -p SCR -t Task -s "e2e sprint"
+acli-plus jira workitem edit <key vừa tạo> --field-json "Sprint=1"
+acli-plus jira sprint list-workitems --sprint 1
+```
+
+| # | Lệnh | Kỳ vọng |
+|---|---|---|
+| 2b.1 | `acli-plus jira workitem edit <key> --field-json "Sprint=1"` | `updated SCR-N` |
+| 2b.2 | `acli-plus jira sprint list-workitems --sprint 1` | Ticket vừa gán đã xuất hiện |
+| 2b.3 | `acli-plus jira workitem edit <key> --field "Sprint=1"` | `400 ... The Sprint (id) must be a number` — cho thấy vì sao cần `--field-json` |
+| 2b.4 | `acli-plus jira workitem edit <key> --field-json 'Labels=["x","y"]'` | `updated SCR-N`, `view --fields labels` ra `x, y` — cờ này gửi mọi hình dạng JSON, không riêng số. Lưu ý `--field-json "Sprint=[1]"` **vẫn** bị Jira từ chối: cờ gửi đúng `[1]` như bạn viết, nhưng field Sprint chỉ nhận số trần |
+| 2b.5 | `acli-plus jira workitem edit <key> --field-json "Sprint={oops"` | `field Sprint: --field-json expects valid JSON, got "{oops"` — chặn tại chỗ, không gọi API |
 
 **Tìm kiếm** — chú ý API mới không trả tổng số, nên mặc định chỉ 1 trang:
 
@@ -227,7 +276,7 @@ acli-plus jira workitem search --jql "project = KAN" --paginate | wc -l
 | # | Lệnh | Kỳ vọng |
 |---|---|---|
 | 3.1 | `acli-plus jira workitem create -p KAN -t Task -s "dry run" --dry-run` | `[dry-run] create Task "dry run" in KAN`, **không** tạo ticket |
-| 3.2 | `acli-plus jira workitem edit --jql "project = KAN" -s "x" --dry-run` | `[dry-run] edit KAN-16, KAN-17 (summary)` |
+| 3.2 | `acli-plus jira workitem edit --jql "project = KAN" -s "x" --dry-run` | `[dry-run] edit <key A>, <key B> (summary)` |
 | 3.3 | `acli-plus jira workitem delete --jql "project = KAN" --dry-run` | `[dry-run] delete ...` và **không hỏi xác nhận** |
 | 3.4 | Chạy lại lệnh đếm ở trên | Số dòng **không đổi** |
 
@@ -241,8 +290,8 @@ acli-plus jira workitem search --jql "project = KAN" --paginate | wc -l
 | 4.2 | `acli-plus jira workitem create -p KAN -t Task -s "e2e assigned" -a @me` | Tạo xong, assignee là bạn |
 | 4.3 | `acli-plus jira workitem create -p KAN -t Task -s "e2e full" -a @me -l backend,q3 --priority High --due 2026-12-31` | Đủ label/priority/due |
 | 4.4 | Markdown trong `-d` | Để riêng ngay dưới bảng — chuỗi test có backtick |
-| 4.5 | `acli-plus jira workitem create -p KAN -t Task --from-file /tmp/story.md` | Summary lấy từ frontmatter `title:` hoặc H1 — xem [mục 5](#5-markdown--adf) |
-| 4.6 | `acli-plus jira workitem create -p KAN -t Task -s "e2e sub" --parent KAN-16` | Tạo con của KAN-16 (type phải là Subtask nếu project yêu cầu) |
+| 4.5 | Tạo từ file Markdown | Cần `/tmp/story.md`, mà file đó được tạo ở [mục 5](#5-markdown--adf) — chạy trọn mục 5, nó gồm đúng lệnh này |
+| 4.6 | Tạo ticket con bằng `--parent` | Để riêng ngay dưới bảng — `--parent` có hai tầng, dễ dính lỗi 400 |
 | 4.7 | `acli-plus jira workitem create -p KAN -t Task -e` | Mở `$EDITOR`; **dòng đầu = summary**, phần còn lại = description. Lưu & thoát → tạo ticket. Xoá sạch nội dung → báo `nothing was written in the editor` |
 
 **4.4 — Markdown trong `-d`.** Case này để riêng ra khỏi bảng vì chuỗi test có
@@ -255,19 +304,48 @@ acli-plus jira workitem create -p KAN -t Task -s "e2e md" \
 
 Kỳ vọng: mở ticket trên web → thấy định dạng thật, không phải chữ `**` thô.
 
+**4.6 — `--parent`.** Jira team-managed có hai tầng cha con khác nhau, và dùng
+nhầm tầng thì chỉ nhận được `400 ... Please select valid parent issue.` chứ
+không nói tầng nào sai:
+
+| Type đang tạo | Cha hợp lệ phải là |
+|---|---|
+| `Subtask` | một `Task` / `Story` / `Bug` |
+| `Task` / `Story` / `Bug` | một `Epic` |
+| `Epic` | không có cha |
+
+Lấy key một Task đang tồn tại rồi tạo subtask dưới nó:
+
+```bash
+acli-plus jira workitem search --jql "project = KAN AND type = Task" --limit 1 --csv
+acli-plus jira workitem create -p KAN -t Subtask -s "e2e sub" --parent <key vừa lấy>
+```
+
+Type nào có thật trong project thì xem [mục 0.3](#03-chọn-project-để-test) —
+project `KAN` có `Epic`, `Task`, `Story`, `Bug`, `Subtask`.
+
 ⚠️ Bắt buộc **nháy đơn** cho `-d`. Nháy kép thì shell hiểu `` `code` `` là
 command substitution: nó đi chạy lệnh tên `code` rồi nhét output vào mô tả — tuỳ
 máy mà ra treo shell, mô tả rỗng, hay chạy nhầm thứ khác. Nháy đơn giữ nguyên
 văn mọi ký tự.
 
-**Field tuỳ ý** — đây là phần đáng test nhất:
+**Field tuỳ ý** — đây là phần đáng test nhất. Custom field khác nhau theo từng
+site, nên xem site mình có gì trước khi chạy 4.9–4.11:
+
+```bash
+acli-plus jira field list --custom --csv
+```
+
+Site `KAN` chỉ có 8 custom field, **không** có `Story Points` và **không** có
+`customfield_10016` — hai thứ hay xuất hiện trong ví dụ trên mạng.
 
 | # | Lệnh | Kỳ vọng |
 |---|---|---|
 | 4.8 | `acli-plus jira workitem create -p KAN -t Task -s "e2e field" --field "Labels=a,b"` | Gọi field bằng **tên hiển thị**, tự map sang id `labels` và tách mảng |
-| 4.9 | `acli-plus jira workitem create -p KAN -t Task -s "e2e sp" --field "Story Points=5"` | Nếu site có field này → set số `5`. Không có → `field not found: "Story Points"` |
+| 4.9 | `acli-plus jira workitem create -p KAN -t Task -s "e2e sp" --field "Story Points=5"` | ✅ **Trên site KAN, PASS của case này chính là lỗi** `field not found: "Story Points"` — site không có field đó, và thứ đang test là acli-plus chặn tên field sai **trước khi** gọi API |
+| 4.9b | `acli-plus jira workitem create -p KAN -t Task -s "e2e num" --field "Original estimate=3600"` | Nhánh dương của 4.9 bằng field số **có thật** trên site: set được giá trị số |
 | 4.10 | `acli-plus jira workitem create -p KAN -t Task -s "e2e raw" --field 'labels=["x","y"]'` | Truyền thẳng JSON — đường thoát cho field lạ |
-| 4.11 | `acli-plus jira workitem create -p KAN -t Task -s "e2e id" --field "customfield_10016=3"` | Gọi thẳng bằng id cũng được |
+| 4.11 | `acli-plus jira workitem create -p KAN -t Task -s "e2e id" --field "customfield_10015=2026-12-31"` | Gọi thẳng bằng id cũng được (`customfield_10015` = `Start date`) |
 
 **Tạo hàng loạt:**
 
@@ -358,49 +436,59 @@ acli-plus jira workitem view <key mà lệnh trên vừa in ra>
 
 ## 6. Sửa, workflow, người phụ trách
 
-Mục này thao tác trên ticket có thật. Doc dùng `KAN-22`, là ticket tồn tại lúc
-viết — nhưng **key ticket đổi theo từng lần chạy**, và [mục 12](#12-dọn-dẹp) xoá
-sạch chúng. Liệt kê ticket đang có để biết nên thay bằng key nào:
+Mục 6–8 cần ticket có thật. Key ticket **đổi theo từng lần chạy** và [mục
+12](#12-dọn-dẹp) xoá sạch chúng, nên doc không viết cứng key được — viết cứng thì
+lần sau copy ra chỉ nhận `work item not found`. Tạo sẵn hai ticket mang label
+riêng để cả ba mục dùng chung:
 
 ```bash
-acli-plus jira workitem search --jql "project = KAN ORDER BY created DESC" --csv
+acli-plus jira workitem create -p KAN -t Task -s "e2e A" -l e2e-muc6
+acli-plus jira workitem create -p KAN -t Task -s "e2e B" -l e2e-muc6
 ```
 
-Cột đầu là key. Không còn ticket nào thì chạy [mục 4](#4-tạo-work-item) tạo vài
-cái trước.
+Mỗi lệnh in ra key của nó. Từ đây:
+
+- **`<key A>`** và **`<key B>`** trong bảng → thay bằng hai key vừa in ra
+- lệnh nào có `--jql "... labels = e2e-muc6"` → **copy chạy thẳng**, không phải thay gì
+
+Quên mất key thì lấy lại:
+
+```bash
+acli-plus jira workitem search --jql "project = KAN AND labels = e2e-muc6" --csv
+```
 
 | # | Lệnh | Kỳ vọng |
 |---|---|---|
-| 6.1 | `acli-plus jira workitem view KAN-22` | Khối field + description |
-| 6.2 | `acli-plus jira workitem view KAN-22 --fields summary,status` | Chỉ 2 field |
-| 6.3 | `acli-plus jira workitem view KAN-22 --json` | JSON thô, có custom field |
-| 6.4 | `acli-plus jira workitem view "https://<host>/browse/KAN-22"` | URL dùng thay key được, và **URL tự chọn site** |
+| 6.1 | `acli-plus jira workitem view <key A>` | Khối field + description |
+| 6.2 | `acli-plus jira workitem view <key A> --fields summary,status` | Chỉ 2 field |
+| 6.3 | `acli-plus jira workitem view <key A> --json` | JSON thô, có custom field |
+| 6.4 | `acli-plus jira workitem view "https://<host>/browse/<key A>"` | URL dùng thay key được, và **URL tự chọn site** |
 | 6.5 | `acli-plus jira workitem view KAN-22x` | Lỗi `not a work item key ...` — chặn ngay, không gọi API |
-| 6.6 | `acli-plus jira workitem edit KAN-22 -s "đã sửa"` | `updated KAN-N` |
-| 6.7 | `acli-plus jira workitem edit KAN-22 --field "Labels=x,y"` | Ghi đè label |
-| 6.8 | `acli-plus jira workitem edit KAN-22 --priority Low --no-notify` | Không gửi mail cho watcher |
-| 6.9 | `acli-plus jira workitem edit --key KAN-16,KAN-17 -l chung` | Sửa nhiều ticket 1 lệnh |
-| 6.10 | `acli-plus jira workitem edit --jql "project = KAN AND labels = x" -l y` | Chọn theo JQL |
-| 6.11 | `acli-plus jira workitem edit KAN-22` | Lỗi `nothing to change: pass at least one field flag` |
+| 6.6 | `acli-plus jira workitem edit <key A> -s "đã sửa"` | `updated KAN-N` |
+| 6.7 | `acli-plus jira workitem edit <key A> --field "Labels=x,y"` | Ghi đè label |
+| 6.8 | `acli-plus jira workitem edit <key A> --priority Low --no-notify` | Không gửi mail cho watcher |
+| 6.9 | `acli-plus jira workitem edit --key <key A>,<key B> -l chung` | Sửa nhiều ticket 1 lệnh |
+| 6.10 | `acli-plus jira workitem edit --jql "project = KAN AND labels = e2e-muc6" -l y` | Chọn theo JQL |
+| 6.11 | `acli-plus jira workitem edit <key A>` | Lỗi `nothing to change: pass at least one field flag` |
 
 **Chuyển trạng thái:**
 
 | # | Lệnh | Kỳ vọng |
 |---|---|---|
-| 6.12 | `acli-plus jira workitem transition KAN-22 --list` | Bảng `ID NAME MOVES TO SCREEN` — chỉ những transition **hợp lệ từ trạng thái hiện tại** |
-| 6.13 | `acli-plus jira workitem transition KAN-22 --status "In Progress"` | `moved KAN-N to "In Progress"` |
-| 6.14 | `acli-plus jira workitem transition KAN-22 --status "Không Tồn Tại"` | Lỗi `no transition to that status is available ... (available: In Progress, Done)` — **có liệt kê cái đúng** |
-| 6.15 | `acli-plus jira workitem transition --jql "project = KAN AND labels = x" --status Done` | Chuyển hàng loạt theo JQL |
+| 6.12 | `acli-plus jira workitem transition <key A> --list` | Bảng `ID NAME MOVES TO SCREEN` — chỉ những transition **hợp lệ từ trạng thái hiện tại**. Board `KAN` trả về 4 dòng: `To Do`, `In Progress`, `In Review`, `Done` |
+| 6.13 | `acli-plus jira workitem transition <key A> --status "In Progress"` | `moved KAN-N to "In Progress"` |
+| 6.14 | `acli-plus jira workitem transition <key A> --status "Không Tồn Tại"` | Lỗi `KAN-N: no transition to that status is available from the current status (available: To Do, In Progress, In Review, Done)` — **có liệt kê cái đúng**, khác hẳn lỗi 400 trống trơn của API |
+| 6.15 | `acli-plus jira workitem transition --jql "project = KAN AND labels = e2e-muc6" --status Done` | Chuyển hàng loạt theo JQL |
 
 **Gán người:**
 
 | # | Lệnh | Kỳ vọng |
 |---|---|---|
-| 6.16 | `acli-plus jira workitem assign KAN-22 --assignee @me` | Gán cho bạn |
-| 6.17 | `acli-plus jira workitem assign KAN-22 --assignee your@email.com` | Tìm theo email |
-| 6.18 | `acli-plus jira workitem assign KAN-22 --assignee ""` | Bỏ gán → `assigned KAN-N to nobody` |
-| 6.19 | `acli-plus jira workitem assign KAN-22 --assignee "Tên Trùng"` | Nếu trùng nhiều người → `"..." matches N accounts; pass an account id instead: ...` — **không đoán bừa** |
-| 6.20 | `acli-plus jira workitem assign KAN-22 --assignee ghost@nowhere.com` | `user not found: ghost@nowhere.com` |
+| 6.16 | `acli-plus jira workitem assign <key A> --assignee @me` | Gán cho bạn |
+| 6.17 | `acli-plus jira workitem assign <key A> --assignee your@email.com` | Tìm theo email |
+| 6.18 | `acli-plus jira workitem assign <key A> --assignee ""` | Bỏ gán → `assigned KAN-N to nobody` |
+| 6.19 | `acli-plus jira workitem assign <key A> --assignee "Tên Trùng"` | Nếu trùng nhiều người → `"..." matches N accounts; pass an account id instead: ...` — **không đoán bừa** |
+| 6.20 | `acli-plus jira workitem assign <key A> --assignee ghost@nowhere.com` | `user not found: ghost@nowhere.com` |
 
 ---
 
@@ -408,29 +496,29 @@ cái trước.
 
 | # | Lệnh | Kỳ vọng |
 |---|---|---|
-| 7.1 | `acli-plus jira workitem comment-create KAN-22 -b "Comment có **markdown**."` | `commented on KAN-N (comment 12345)` |
-| 7.2 | `acli-plus jira workitem comment-create KAN-22 --body-file /tmp/story.md` | Comment dài từ file Markdown |
-| 7.3 | `acli-plus jira workitem comment-list KAN-22` | Mỗi comment: `id  thời gian  tác giả` rồi nội dung |
-| 7.4 | `acli-plus jira workitem comment-list KAN-22 --json` | JSON |
-| 7.5 | `acli-plus jira workitem comment-update KAN-22 --id 12345 -b "Sửa rồi."` | Nội dung đổi |
-| 7.6 | `acli-plus jira workitem comment-visibility KAN-22 --id 12345 --type role --value Administrators` | Chỉ role đó đọc được; `comment-list` hiện `[role: Administrators]` |
-| 7.7 | `acli-plus jira workitem comment-visibility KAN-22 --id 12345 --public` | Gỡ giới hạn — **nội dung comment phải giữ nguyên** (đây là bug dễ gặp: Jira update ghi đè cả body) |
-| 7.8 | `acli-plus jira workitem comment-delete KAN-22 --id 12345` | Hỏi xác nhận rồi xoá |
-| 7.9 | `acli-plus jira workitem comment-delete KAN-22 --id 12345 --yes` | Xoá không hỏi |
+| 7.1 | `acli-plus jira workitem comment-create <key A> -b "Comment có **markdown**."` | `commented on KAN-N (comment 12345)` |
+| 7.2 | `acli-plus jira workitem comment-create <key A> --body-file /tmp/story.md` | Comment dài từ file Markdown |
+| 7.3 | `acli-plus jira workitem comment-list <key A>` | Mỗi comment: `id  thời gian  tác giả` rồi nội dung |
+| 7.4 | `acli-plus jira workitem comment-list <key A> --json` | JSON |
+| 7.5 | `acli-plus jira workitem comment-update <key A> --id 12345 -b "Sửa rồi."` | Nội dung đổi |
+| 7.6 | `acli-plus jira workitem comment-visibility <key A> --id 12345 --type role --value Administrators` | Chỉ role đó đọc được; `comment-list` hiện `[role: Administrators]` |
+| 7.7 | `acli-plus jira workitem comment-visibility <key A> --id 12345 --public` | Gỡ giới hạn — **nội dung comment phải giữ nguyên** (đây là bug dễ gặp: Jira update ghi đè cả body) |
+| 7.8 | `acli-plus jira workitem comment-delete <key A> --id 12345` | Hỏi xác nhận rồi xoá |
+| 7.9 | `acli-plus jira workitem comment-delete <key A> --id 12345 --yes` | Xoá không hỏi |
 
 | # | Lệnh | Kỳ vọng |
 |---|---|---|
 | 7.10 | `acli-plus jira workitem link --list-types` | Danh sách link type của site |
-| 7.11 | `acli-plus jira workitem link --type Relates --inward KAN-16 --outward KAN-17` | `linked KAN-16 -> KAN-17 (Relates)` |
-| 7.12 | `acli-plus jira workitem link --type blocks --inward KAN-16 --outward KAN-17` | Chữ thường vẫn nhận, chuẩn hoá thành `Blocks` |
-| 7.13 | `acli-plus jira workitem link --type "is blocked by" --inward KAN-16 --outward KAN-17` | Nhận cả cụm từ chiều inward/outward |
-| 7.14 | `acli-plus jira workitem link --type Sai --inward KAN-16 --outward KAN-17` | `issue link type not found: "Sai" (available: Blocks, Relates, ...)` |
+| 7.11 | `acli-plus jira workitem link --type Relates --inward <key A> --outward <key B>` | `linked <key A> -> <key B> (Relates)` |
+| 7.12 | `acli-plus jira workitem link --type blocks --inward <key A> --outward <key B>` | Chữ thường vẫn nhận, chuẩn hoá thành `Blocks` |
+| 7.13 | `acli-plus jira workitem link --type "is blocked by" --inward <key A> --outward <key B>` | Nhận cả cụm từ chiều inward/outward |
+| 7.14 | `acli-plus jira workitem link --type Sai --inward <key A> --outward <key B>` | `issue link type not found: "Sai" (available: Blocks, Relates, ...)` |
 
 | # | Lệnh | Kỳ vọng |
 |---|---|---|
-| 7.15 | `acli-plus jira workitem watcher-list KAN-22` | Bảng `ACCOUNT ID NAME EMAIL`; thường có bạn |
-| 7.16 | `acli-plus jira workitem watcher-remove KAN-22 --watcher @me` | Bỏ theo dõi; chạy lại 7.15 để xác nhận |
-| 7.17 | `acli-plus jira workitem attachment-list KAN-22` | `no results` nếu chưa có file |
+| 7.15 | `acli-plus jira workitem watcher-list <key A>` | Bảng `ACCOUNT ID NAME EMAIL`; thường có bạn |
+| 7.16 | `acli-plus jira workitem watcher-remove <key A> --watcher @me` | Bỏ theo dõi; chạy lại 7.15 để xác nhận |
+| 7.17 | `acli-plus jira workitem attachment-list <key A>` | `no results` nếu chưa có file |
 | 7.18 | Đính kèm 1 file qua web Jira, rồi chạy lại 7.17 | Bảng `ID FILENAME SIZE TYPE AUTHOR CREATED`, size dạng `2.0 KB` |
 | 7.19 | `acli-plus jira workitem attachment-delete --id <id ở 7.18>` | Hỏi xác nhận rồi xoá |
 
@@ -440,22 +528,22 @@ cái trước.
 
 | # | Lệnh | Kỳ vọng |
 |---|---|---|
-| 8.1 | `acli-plus jira workitem clone KAN-22` | `cloned into KAN-N`, summary có tiền tố `CLONE -` — **ghi lại key này cho 8.4** |
-| 8.2 | `acli-plus jira workitem clone KAN-22 --prefix "COPY -"` | Tiền tố tuỳ ý |
-| 8.3 | `acli-plus jira workitem clone KAN-22 --prefix "" -p KHAC` | Clone sang project khác (flag ghi đè giá trị copy) |
+| 8.1 | `acli-plus jira workitem clone <key A>` | `cloned into KAN-N`, summary có tiền tố `CLONE -` — **ghi lại key này cho 8.4** |
+| 8.2 | `acli-plus jira workitem clone <key A> --prefix "COPY -"` | Tiền tố tuỳ ý |
+| 8.3 | `acli-plus jira workitem clone <key A> --prefix "" -p KHAC` | Clone sang project khác (flag ghi đè giá trị copy) |
 | 8.4 | `acli-plus jira workitem view <key mà 8.1 in ra>` | Bản clone giữ description **có định dạng**, không phải text phẳng. Không copy status/comment/attachment/link |
 
 | # | Lệnh | Kỳ vọng |
 |---|---|---|
-| 8.5 | `acli-plus jira workitem archive KAN-22` | Có Premium → `archived KAN-N`. Không có → `this operation is not available on your Jira plan: archive requires Jira Premium or Enterprise` (**không phải lỗi 404 khó hiểu**) |
-| 8.6 | `acli-plus jira workitem unarchive KAN-22` | Khôi phục (chỉ khi 8.5 thành công) |
+| 8.5 | `acli-plus jira workitem archive <key A>` | Có Premium → `archived KAN-N`. Không có → `this operation is not available on your Jira plan: archive requires Jira Premium or Enterprise` (**không phải lỗi 404 khó hiểu**) |
+| 8.6 | `acli-plus jira workitem unarchive <key A>` | Khôi phục (chỉ khi 8.5 thành công) |
 
 | # | Lệnh | Kỳ vọng |
 |---|---|---|
-| 8.7 | `acli-plus jira workitem delete KAN-22` rồi gõ `n` | `aborted; no changes made` — ticket còn nguyên |
-| 8.8 | `acli-plus jira workitem delete KAN-22` rồi gõ `y` | Xoá. Lưu ý prompt ghi rõ **This cannot be undone** — khác Confluence, ticket Jira không vào thùng rác |
-| 8.9 | `acli-plus jira workitem delete KAN-22 --yes` | Xoá không hỏi |
-| 8.10 | `acli-plus jira workitem delete KAN-16 --with-subtasks --yes` | Xoá kèm subtask (không có cờ này Jira từ chối xoá cha còn subtask) |
+| 8.7 | `acli-plus jira workitem delete <key A>` rồi gõ `n` | `aborted; no changes made` — ticket còn nguyên |
+| 8.8 | `acli-plus jira workitem delete <key A>` rồi gõ `y` | Xoá. Lưu ý prompt ghi rõ **This cannot be undone** — khác Confluence, ticket Jira không vào thùng rác |
+| 8.9 | `acli-plus jira workitem delete <key A> --yes` | Xoá không hỏi |
+| 8.10 | `acli-plus jira workitem delete <key A> --with-subtasks --yes` | Xoá kèm subtask (không có cờ này Jira từ chối xoá cha còn subtask) |
 | 8.11 | `acli-plus jira workitem delete --jql "project = KAN AND labels = acli-plus-e2e" --yes` | Xoá hàng loạt theo JQL — dùng để dọn rác |
 
 ---
@@ -545,9 +633,9 @@ Nhớ `rm acli-plus.yaml` sau khi test nếu không muốn commit vào repo này
 | 11.7 | `acli-plus jira workitem edit -s x` | `no work items selected: pass a key, --key, or --jql` | 1 |
 | 11.7b | `acli-plus jira workitem edit --jql "project = KAN AND labels = khong-ton-tai" -s x` | `the JQL query matched no work items: ...` — **khác** 11.7: query chạy được nhưng không khớp gì | 1 |
 | 11.8 | `acli-plus jira workitem create -p KAN -t Task -s x --field "Không Có=1"` | `field not found: "Không Có"` | 1 |
-| 11.9 | `acli-plus jira workitem create -p KAN -t Task -s x --field "Story Points=abc"` | `field Story Points: expects a number, got "abc"` | 1 |
+| 11.9 | `acli-plus jira workitem create -p KAN -t Task -s x --field "Original estimate=abc"` | `field Original estimate: expects a number, got "abc"` — dùng field số **có thật** trên site, chứ `Story Points` sẽ dừng sớm hơn ở `field not found` và không chạm tới nhánh kiểm kiểu | 1 |
 | 11.10 | `acli-plus jira workitem create -p KAN -t Task -s x --field "thiếu bằng"` | `--field expects name=value` | 1 |
-| 11.11 | `acli-plus jira workitem comment-update KAN-22 -b x` | `--id is required (see 'comment-list' for comment ids)` | 1 |
+| 11.11 | `acli-plus jira workitem comment-update <key A> -b x` | `--id is required (see 'comment-list' for comment ids)` | 1 |
 
 Kiểm tra exit code:
 
@@ -567,10 +655,25 @@ acli-plus jira workitem search --jql "project = KAN" --csv 2>/dev/null | head -3
 
 ## 12. Dọn dẹp
 
+Ticket sinh ra từ ba nguồn khác nhau, dọn cả ba:
+
 ```bash
-# xoá mọi ticket do test tạo ra
+# 1. ticket do scripts/e2e-jira.sh tạo
 acli-plus jira workitem delete --jql "project = KAN AND labels = acli-plus-e2e" --yes
 
-# kiểm tra còn sót không
+# 2. hai ticket A/B của mục 6
+acli-plus jira workitem delete --jql "project = KAN AND labels = e2e-muc6" --yes
+```
+
+Ticket tạo tay ở mục 4 **không mang label nào**, chỉ nhận ra được qua summary.
+Xem trước rồi hãy xoá — `~` là so khớp gần đúng, dễ quét trúng ticket thật:
+
+```bash
 acli-plus jira workitem search --jql "project = KAN AND summary ~ 'e2e'" --paginate
+```
+
+Đúng toàn ticket rác thì xoá:
+
+```bash
+acli-plus jira workitem delete --jql "project = KAN AND summary ~ 'e2e'" --yes
 ```

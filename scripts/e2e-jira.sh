@@ -150,6 +150,18 @@ $LAST_OUTPUT"
 	fi
 }
 
+# lacks is the counterpart to contains, for claims only absence can prove. A
+# conversion is one: Markdown that reaches Jira unconverted comes back as its
+# literal syntax, and a positive check alone cannot tell that apart.
+lacks() {
+	if printf '%s' "$LAST_OUTPUT" | grep -qF -- "$2"; then
+		fail "$1" "should not appear, but the previous output has it:
+$LAST_OUTPUT"
+	else
+		pass "$1"
+	fi
+}
+
 # keyFrom pulls a work item key out of a result line such as "created TEAM-1 …".
 keyFrom() {
 	printf '%s' "$1" | grep -oE '[A-Z][A-Z0-9_]*-[0-9]+' | head -1
@@ -405,10 +417,21 @@ else
 	skip "Markdown to ADF checks" "the --from-file create failed"
 fi
 
-expect_ok "create -d with Markdown" jira workitem create -p "$PROJECT" -t "$TYPE" \
-	-s "acli-plus e2e markdown" -d "Line with **bold** and a [link](https://example.com)."
-MD_KEY=$(keyFrom "$LAST_OUTPUT")
-[ -n "$MD_KEY" ] && track "$MD_KEY"
+if expect_ok "create -d with Markdown" jira workitem create -p "$PROJECT" -t "$TYPE" \
+	-s "acli-plus e2e markdown" -d "Line with **bold** and a [link](https://example.com)."; then
+	MD_KEY=$(keyFrom "$LAST_OUTPUT")
+	[ -n "$MD_KEY" ] && track "$MD_KEY"
+
+	# Inline text is Markdown just like a file is. The flattener drops marks, so
+	# a converted description reads "bold" while an unconverted one still carries
+	# the literal asterisks — which is exactly how this regressed once.
+	expect_ok "read the -d description back" jira workitem view "$MD_KEY"
+	contains "  -d Markdown was converted" "Line with bold and a link."
+	lacks "  no literal ** reached Jira" '**bold**'
+	lacks "  no literal link syntax reached Jira" '](https://example.com)'
+else
+	skip "-d Markdown checks" "the -d create failed"
+fi
 
 # ------------------------------------------------------- phase 6: edit/workflow --
 
@@ -418,6 +441,16 @@ expect_ok "edit the summary" jira workitem edit "$MAIN" -s "acli-plus e2e edited
 expect_out "the edit took effect" "acli-plus e2e edited" jira workitem view "$MAIN"
 expect_ok "--field resolves a field by display name" jira workitem edit "$MAIN" --field "Labels=acli-plus-e2e,second"
 expect_out "the field value was applied" "second" jira workitem view "$MAIN" --fields labels
+
+# --field shapes the value from the field's schema, which a few Jira fields
+# contradict — Sprint reads back as an array but only accepts a bare number.
+# --field-json is the way out, so it has to send what was typed, untouched. The
+# label stays on the item or the cleanup trap loses track of it.
+expect_ok "--field-json sends literal JSON" \
+	jira workitem edit "$MAIN" --field-json 'Labels=["acli-plus-e2e","raw-json"]'
+expect_out "the literal JSON value was applied" "raw-json" jira workitem view "$MAIN" --fields labels
+expect_err "--field-json rejects malformed JSON before any API call" "expects valid JSON" \
+	jira workitem edit "$MAIN" --field-json 'Labels={oops'
 expect_ok "edit --no-notify" jira workitem edit "$MAIN" --priority Medium --no-notify || true
 
 expect_ok "transition --list" jira workitem transition "$MAIN" --list
@@ -441,6 +474,8 @@ phase "Phase 7 — comments, links, watchers, attachments"
 
 expect_ok "comment-create" jira workitem comment-create "$MAIN" -b "First comment with **markdown**."
 expect_out "comment-list shows it" "First comment" jira workitem comment-list "$MAIN"
+# -b takes the same Markdown path as -d, so it needs the same proof.
+lacks "  the comment body was converted too" '**markdown**'
 COMMENT=$(printf '%s' "$LAST_OUTPUT" | awk 'NR==1 {print $1}' | grep -E '^[0-9]+$' || true)
 if [ -n "$COMMENT" ]; then
 	expect_ok "comment-update" jira workitem comment-update "$MAIN" --id "$COMMENT" -b "Edited comment."
