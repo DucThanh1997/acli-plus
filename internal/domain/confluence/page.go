@@ -10,6 +10,10 @@ type Page struct {
 	SpaceID  string
 	ParentID string
 	Version  Version
+	// Body is the page content in Confluence storage format. Only a fetch of a
+	// single page carries it; listing endpoints leave it empty, so treat an
+	// empty Body as "not requested" rather than "the page is blank".
+	Body string
 }
 
 // Version captures a page's optimistic-lock version number and the message

@@ -13,10 +13,41 @@ func newPageCmd(deps Deps) *cobra.Command {
 		Short: "Create, update and delete Confluence pages from Markdown",
 	}
 	cmd.AddCommand(
+		newPageViewCmd(deps),
 		newPageCreateCmd(deps),
 		newPageUpdateCmd(deps),
 		newPageDeleteCmd(deps),
 	)
+	return cmd
+}
+
+func newPageViewCmd(deps Deps) *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "view <url>",
+		Short: "Show a page's fields and its stored body",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target, err := confluence.ParseRef(args[0])
+			if err != nil {
+				return err
+			}
+			service, host, err := deps.Service(target.Host)
+			if err != nil {
+				return err
+			}
+			page, err := service.View(cmd.Context(), target)
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				return printJSON(page)
+			}
+			printPage(page, host)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print the raw page as JSON")
 	return cmd
 }
 

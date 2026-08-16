@@ -1,8 +1,11 @@
 package confluence
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"acli-plus/internal/app"
 	confluence "acli-plus/internal/domain/confluence"
@@ -28,6 +31,46 @@ func printResult(res app.Result, host string) {
 	case app.ActionAborted:
 		fmt.Println("aborted; no changes made")
 	}
+}
+
+// printPage renders the detail view: a header block of one-line fields, then
+// the stored body. The body is Confluence storage format (XHTML) as the API
+// returned it — there is no reverse renderer yet, so it is shown verbatim
+// rather than flattened the way the Jira side flattens ADF.
+func printPage(page confluence.Page, host string) {
+	version := ""
+	if page.Version.Number > 0 {
+		version = strconv.Itoa(page.Version.Number)
+		if page.Version.Message != "" {
+			version += " (" + page.Version.Message + ")"
+		}
+	}
+	pairs := [][2]string{
+		{"Id", page.ID},
+		{"Title", page.Title},
+		{"Space id", page.SpaceID},
+		{"Parent id", page.ParentID},
+		{"Version", version},
+		{"URL", strings.TrimPrefix(pageLink(host, page), " -> ")},
+	}
+	for _, pair := range pairs {
+		if pair[1] != "" {
+			fmt.Printf("%-11s %s\n", pair[0]+":", pair[1])
+		}
+	}
+	if page.Body != "" {
+		fmt.Printf("\n%s\n", page.Body)
+	}
+}
+
+// printJSON emits the page as indented JSON for scripts to consume.
+func printJSON(value any) error {
+	encoded, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(encoded))
+	return nil
 }
 
 func pageLink(host string, page confluence.Page) string {

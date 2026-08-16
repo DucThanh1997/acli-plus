@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	confluence "acli-plus/internal/domain/confluence"
@@ -270,4 +271,48 @@ func TestDryRunDoesNotWrite(t *testing.T) {
 	if len(gw.created) != 0 {
 		t.Fatalf("dry-run must not write, got %+v", gw.created)
 	}
+}
+
+func TestPageServiceView(t *testing.T) {
+	t.Run("returns the page with its stored body", func(t *testing.T) {
+		gw := &fakeGateway{getPageFn: func(id string) (confluence.Page, error) {
+			return confluence.Page{
+				ID:      id,
+				Title:   "Onboarding",
+				SpaceID: "100",
+				Version: confluence.Version{Number: 3, Message: versionStamp},
+				Body:    "<p>hello</p>",
+			}, nil
+		}}
+		page, err := NewPageService(gw).View(context.Background(), confluence.PageRef{PageID: "120033"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if page.ID != "120033" || page.Title != "Onboarding" {
+			t.Errorf("page = %+v", page)
+		}
+		if page.Body != "<p>hello</p>" {
+			t.Errorf("body = %q, want the stored body carried through", page.Body)
+		}
+	})
+
+	t.Run("a reference without a page id is refused", func(t *testing.T) {
+		// A space URL names no single page, so there is nothing to show.
+		_, err := NewPageService(&fakeGateway{}).View(context.Background(), confluence.PageRef{SpaceKey: "DEV"})
+		if err == nil || !strings.Contains(err.Error(), "page id") {
+			t.Errorf("error = %v, want it to ask for a page id", err)
+		}
+	})
+
+	t.Run("view never writes", func(t *testing.T) {
+		gw := &fakeGateway{getPageFn: func(id string) (confluence.Page, error) {
+			return confluence.Page{ID: id}, nil
+		}}
+		if _, err := NewPageService(gw).View(context.Background(), confluence.PageRef{PageID: "1"}); err != nil {
+			t.Fatal(err)
+		}
+		if len(gw.created) != 0 || len(gw.updated) != 0 || len(gw.deleted) != 0 {
+			t.Errorf("view touched the gateway's write paths: %+v", gw)
+		}
+	})
 }

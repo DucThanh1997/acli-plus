@@ -43,11 +43,20 @@ type versionDTO struct {
 }
 
 type pageDTO struct {
-	ID       flexID     `json:"id"`
-	Title    string     `json:"title"`
-	SpaceID  flexID     `json:"spaceId"`
-	ParentID flexID     `json:"parentId"`
-	Version  versionDTO `json:"version"`
+	ID       flexID      `json:"id"`
+	Title    string      `json:"title"`
+	SpaceID  flexID      `json:"spaceId"`
+	ParentID flexID      `json:"parentId"`
+	Version  versionDTO  `json:"version"`
+	Body     pageBodyDTO `json:"body"`
+}
+
+// pageBodyDTO is the read shape of a body, which nests the representation under
+// its format name — not the flat {representation, value} bodyDTO that writes
+// send. GetPage asks for body-format=storage; the list endpoints omit body
+// entirely, so this stays zero there and Page.Body comes back empty.
+type pageBodyDTO struct {
+	Storage bodyDTO `json:"storage"`
 }
 
 func (p pageDTO) toDomain() confluence.Page {
@@ -60,6 +69,7 @@ func (p pageDTO) toDomain() confluence.Page {
 			Number:  p.Version.Number,
 			Message: p.Version.Message,
 		},
+		Body: p.Body.Storage.Value,
 	}
 }
 

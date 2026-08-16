@@ -131,6 +131,17 @@ func (s *PageService) Update(ctx context.Context, in UpdateInput) (Result, error
 	return s.writeUpdate(ctx, page, in.Content, in.Opts)
 }
 
+// View fetches one page without changing anything. It is the only read-only
+// page use case, and the reason it exists is that create/update/delete report
+// what they did but never what a page currently holds — leaving no way to check
+// a write from the command line.
+func (s *PageService) View(ctx context.Context, ref confluence.PageRef) (confluence.Page, error) {
+	if ref.PageID == "" {
+		return confluence.Page{}, fmt.Errorf("view needs a page URL (with a page id) or a page id")
+	}
+	return s.gw.GetPage(ctx, ref.PageID)
+}
+
 // Delete moves the target page to the trash after confirmation.
 func (s *PageService) Delete(ctx context.Context, in DeleteInput) (Result, error) {
 	if in.Target.PageID == "" {
