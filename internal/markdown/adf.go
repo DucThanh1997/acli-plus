@@ -11,6 +11,7 @@ import (
 	"github.com/yuin/goldmark/extension"
 	east "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
 
 // ADFDocument is the result of converting Markdown to Atlassian Document
@@ -46,6 +47,18 @@ type adfMark struct {
 // which need a media id from an upload — are downgraded to links and reported
 // as warnings.
 func ConvertADF(source []byte) (ADFDocument, error) {
+	return convertADF(source, true)
+}
+
+// ConvertADFBody renders Markdown the same way but leaves a leading heading in
+// the body and never reports a Title. It is for sources that supply the summary
+// separately — --description and --comment take their text inline, so consuming
+// the first heading there would silently drop it from what the user wrote.
+func ConvertADFBody(source []byte) (ADFDocument, error) {
+	return convertADF(source, false)
+}
+
+func convertADF(source []byte, takeTitle bool) (ADFDocument, error) {
 	front, body, err := splitFrontMatter(source)
 	if err != nil {
 		return ADFDocument{}, err
@@ -57,9 +70,12 @@ func ConvertADF(source []byte) (ADFDocument, error) {
 	rend := &adfRenderer{source: body}
 	content := rend.blocks(root)
 
-	title := strings.TrimSpace(front.Title)
-	if title == "" {
-		title, content = takeLeadingHeading(content)
+	var title string
+	if takeTitle {
+		title = strings.TrimSpace(front.Title)
+		if title == "" {
+			title, content = takeLeadingHeading(content)
+		}
 	}
 
 	encoded, err := encodeDoc(content)
@@ -70,8 +86,11 @@ func ConvertADF(source []byte) (ADFDocument, error) {
 }
 
 // TextToADF wraps plain text in a minimal ADF document: blank lines separate
-// paragraphs and single newlines become hard breaks. It is what --description
-// and --comment use when the value is not Markdown from a file.
+// paragraphs and single newlines become hard breaks. It is for text that is
+// already the flattened rendering of a document — cloning a work item whose raw
+// payload is unavailable — where re-reading the flattening as Markdown would
+// invent formatting the source never had. Text the user typed goes through
+// ConvertADFBody instead.
 func TextToADF(value string) json.RawMessage {
 	blocks := make([]adfNode, 0, 4)
 	for _, block := range strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n\n") {
@@ -369,7 +388,12 @@ func marksEqual(a, b []adfMark) bool {
 func (r *adfRenderer) inline(n ast.Node, marks []adfMark) []adfNode {
 	switch node := n.(type) {
 	case *ast.Text:
-		out := textNodes(string(node.Segment.Value(r.source)), marks)
+		// goldmark leaves backslash escapes in the segment and unescapes them at
+		// render time, so a renderer reading the raw source has to do it here —
+		// otherwise `\*` reaches Jira as a literal backslash-asterisk and there is
+		// no way to write a plain `*`. Code spans and code blocks are excluded:
+		// a backslash inside them is content, not an escape.
+		out := textNodes(string(util.UnescapePunctuations(node.Segment.Value(r.source))), marks)
 		switch {
 		case node.HardLineBreak():
 			out = append(out, adfNode{Type: "hardBreak"})

@@ -637,6 +637,37 @@ func TestRenderDescription(t *testing.T) {
 		}
 	})
 
+	t.Run("inline Markdown is converted", func(t *testing.T) {
+		rendered, err := RenderDescription(DescriptionSource{Text: "a **bold** and `code`"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := string(rendered.Body)
+		for _, want := range []string{`"type":"strong"`, `"type":"code"`, `"text":"bold"`} {
+			if !strings.Contains(body, want) {
+				t.Errorf("body = %s, want it to contain %s", body, want)
+			}
+		}
+		if strings.Contains(body, `**bold**`) {
+			t.Errorf("body = %s, want the asterisks consumed", body)
+		}
+	})
+
+	t.Run("a leading heading stays in the body", func(t *testing.T) {
+		// Unlike --from-file, inline text has no summary to lift a heading into,
+		// so consuming it would drop what the user wrote.
+		rendered, err := RenderDescription(DescriptionSource{Text: "# Heading\n\nbody"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rendered.Title != "" {
+			t.Errorf("title = %q, want empty for an inline source", rendered.Title)
+		}
+		if !strings.Contains(string(rendered.Body), `"text":"Heading"`) {
+			t.Errorf("body = %s, want the heading kept", rendered.Body)
+		}
+	})
+
 	t.Run("an ADF string is passed through", func(t *testing.T) {
 		source := `{"type":"doc","version":1,"content":[]}`
 		rendered, err := RenderDescription(DescriptionSource{Text: source})

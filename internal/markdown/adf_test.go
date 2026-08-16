@@ -178,6 +178,54 @@ func TestConvertADFImageBecomesLink(t *testing.T) {
 	}
 }
 
+func TestConvertADFEscapes(t *testing.T) {
+	t.Run("a backslash escape yields the bare character", func(t *testing.T) {
+		doc, err := ConvertADFBody([]byte(`giá 5\*3\*2 đồng`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(doc.JSON), `"text":"giá 5*3*2 đồng"`) {
+			t.Errorf("json = %s, want the backslashes consumed", doc.JSON)
+		}
+	})
+
+	t.Run("a backslash inside a code span is content", func(t *testing.T) {
+		doc, err := ConvertADFBody([]byte("code: `a\\*b`"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(doc.JSON), `"text":"a\\*b"`) {
+			t.Errorf("json = %s, want the backslash kept inside code", doc.JSON)
+		}
+	})
+
+	t.Run("a leading heading is kept by the body form", func(t *testing.T) {
+		doc, err := ConvertADFBody([]byte("# Heading\n\nbody"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if doc.Title != "" {
+			t.Errorf("title = %q, want empty", doc.Title)
+		}
+		if !strings.Contains(string(doc.JSON), `"type":"heading"`) {
+			t.Errorf("json = %s, want the heading kept", doc.JSON)
+		}
+	})
+
+	t.Run("the title form still lifts the heading out", func(t *testing.T) {
+		doc, err := ConvertADF([]byte("# Heading\n\nbody"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if doc.Title != "Heading" {
+			t.Errorf("title = %q, want Heading", doc.Title)
+		}
+		if strings.Contains(string(doc.JSON), `"type":"heading"`) {
+			t.Errorf("json = %s, want the heading consumed", doc.JSON)
+		}
+	})
+}
+
 func TestTextToADF(t *testing.T) {
 	t.Run("blank lines split paragraphs", func(t *testing.T) {
 		encoded := string(TextToADF("first\n\nsecond"))

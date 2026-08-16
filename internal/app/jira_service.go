@@ -232,7 +232,15 @@ func RenderDescription(src DescriptionSource) (RenderedDescription, error) {
 	if adf, ok := markdown.ParseADF([]byte(src.Text)); ok {
 		return RenderedDescription{Body: jira.Document(adf)}, nil
 	}
-	return RenderedDescription{Body: jira.Document(markdown.TextToADF(src.Text))}, nil
+	// Inline text is Markdown too: --description and --comment are the usual way
+	// to write a short bold word or a link, and leaving them literal is the one
+	// place acli-plus would hand Jira raw asterisks. The body form keeps a
+	// leading heading, since these sources carry no summary to lift it into.
+	doc, err := markdown.ConvertADFBody([]byte(src.Text))
+	if err != nil {
+		return RenderedDescription{}, err
+	}
+	return RenderedDescription{Body: jira.Document(doc.JSON), Warnings: doc.Warnings}, nil
 }
 
 // BrowseURL builds the link to a work item on this service's site.
