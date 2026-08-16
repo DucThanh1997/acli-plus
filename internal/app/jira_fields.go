@@ -14,16 +14,31 @@ import (
 type FieldAssignment struct {
 	Name  string
 	Value string
+	// Raw sends Value to Jira as literal JSON instead of shaping it from the
+	// field's schema. It is what --field-json sets.
+	Raw bool
 }
 
 // ParseFieldAssignment splits a `name=value` flag. The name may be a field id,
 // key, or display name; the value may contain further "=" characters.
 func ParseFieldAssignment(raw string) (FieldAssignment, error) {
+	return parseAssignment("--field", raw, false)
+}
+
+// ParseFieldJSON splits a `name=json` flag for --field-json, whose value is sent
+// exactly as written. Some Jira fields cannot be derived from their schema —
+// Sprint reads back as an array of objects but only accepts a bare number on
+// write — so there has to be a way to say precisely what goes on the wire.
+func ParseFieldJSON(raw string) (FieldAssignment, error) {
+	return parseAssignment("--field-json", raw, true)
+}
+
+func parseAssignment(flag, raw string, rawJSON bool) (FieldAssignment, error) {
 	name, value, found := strings.Cut(raw, "=")
 	if !found || strings.TrimSpace(name) == "" {
-		return FieldAssignment{}, fmt.Errorf("--field expects name=value, got %q", raw)
+		return FieldAssignment{}, fmt.Errorf("%s expects name=value, got %q", flag, raw)
 	}
-	return FieldAssignment{Name: strings.TrimSpace(name), Value: value}, nil
+	return FieldAssignment{Name: strings.TrimSpace(name), Value: value, Raw: rawJSON}, nil
 }
 
 // BuildFields resolves each assignment's field name to its id and shapes the
@@ -39,8 +54,12 @@ func (s *JiraService) BuildFields(ctx context.Context, assignments []FieldAssign
 		if err != nil {
 			return nil, err
 		}
-		value, err := s.coerceFieldValue(ctx, field, assignment.Value)
-		if err != nil {
+		var value any
+		if assignment.Raw {
+			if err := json.Unmarshal([]byte(assignment.Value), &value); err != nil {
+				return nil, fmt.Errorf("field %s: --field-json expects valid JSON, got %q", field.Name, assignment.Value)
+			}
+		} else if value, err = s.coerceFieldValue(ctx, field, assignment.Value); err != nil {
 			return nil, fmt.Errorf("field %s: %w", field.Name, err)
 		}
 		values[field.ID] = value

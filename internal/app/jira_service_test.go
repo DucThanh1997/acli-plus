@@ -242,6 +242,30 @@ func TestBuildFields(t *testing.T) {
 			t.Errorf("error = %v, want a number-format error", err)
 		}
 	})
+
+	t.Run("field-json sends a bare number the schema would have wrapped", func(t *testing.T) {
+		// Sprint is schema array[json] but only accepts a scalar on write, so
+		// the shaping that serves every other array field has to be bypassable.
+		assignment, err := ParseFieldJSON("Team Lead=1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		fields, err := newTestService(&fakeJira{}).BuildFields(context.Background(), []FieldAssignment{assignment})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fields["customfield_10020"]; !reflect.DeepEqual(got, float64(1)) {
+			t.Errorf("value = %#v, want a bare 1 rather than a shaped object", got)
+		}
+	})
+
+	t.Run("field-json rejects malformed JSON", func(t *testing.T) {
+		assignment, _ := ParseFieldJSON("Summary={oops")
+		_, err := newTestService(&fakeJira{}).BuildFields(context.Background(), []FieldAssignment{assignment})
+		if err == nil || !strings.Contains(err.Error(), "valid JSON") {
+			t.Errorf("error = %v, want a JSON-format error", err)
+		}
+	})
 }
 
 func TestParseFieldAssignment(t *testing.T) {

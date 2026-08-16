@@ -119,6 +119,7 @@ type attributeFlags struct {
 	components  []string
 	fixVersions []string
 	fields      []string
+	fieldsJSON  []string
 
 	description     string
 	descriptionFile string
@@ -144,6 +145,7 @@ func (a *attributeFlags) register(cmd *cobra.Command, core bool) {
 	flags.StringVar(&a.due, "due", "", "due date as YYYY-MM-DD")
 	flags.StringVar(&a.parent, "parent", "", "parent work item key (for subtasks and items under an epic)")
 	flags.StringArrayVar(&a.fields, "field", nil, "any other field as name=value; repeatable (e.g. --field \"Story Points=5\")")
+	flags.StringArrayVar(&a.fieldsJSON, "field-json", nil, "field as name=<literal JSON>, sent unshaped; repeatable (e.g. --field-json \"Sprint=1\")")
 
 	if core {
 		flags.StringVarP(&a.project, "project", "p", "", "project key")
@@ -190,6 +192,13 @@ func (a *attributeFlags) attributes() (app.WorkItemAttributes, error) {
 
 	for _, raw := range a.fields {
 		assignment, err := app.ParseFieldAssignment(raw)
+		if err != nil {
+			return app.WorkItemAttributes{}, err
+		}
+		attrs.Fields = append(attrs.Fields, assignment)
+	}
+	for _, raw := range a.fieldsJSON {
+		assignment, err := app.ParseFieldJSON(raw)
 		if err != nil {
 			return app.WorkItemAttributes{}, err
 		}
