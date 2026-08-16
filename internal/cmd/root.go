@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"acli-plus/internal/app"
+	confluencecmd "acli-plus/internal/cmd/confluence"
 	jiracmd "acli-plus/internal/cmd/jira"
 	"acli-plus/internal/config"
 	confluence "acli-plus/internal/domain/confluence"
@@ -51,13 +52,20 @@ func newRootCmd() *cobra.Command {
 
 	root.AddCommand(
 		newSetupCmd(),
-		newCreateCmd(),
-		newUpdateCmd(),
-		newDeleteCmd(),
 		newVersionCmd(),
+		confluencecmd.NewCommand(confluenceDeps()),
 		jiracmd.NewCommand(jiraDeps()),
 	)
 	return root
+}
+
+// confluenceDeps hands the Confluence command tree credential resolution and
+// the global write flags, the same way jiraDeps does for Jira.
+func confluenceDeps() confluencecmd.Deps {
+	return confluencecmd.Deps{
+		Service: buildPageService,
+		Options: writeOptions,
+	}
 }
 
 // jiraDeps hands the Jira command tree everything it needs from this layer:
@@ -143,31 +151,4 @@ func confirmFromStdin(prompt string) (bool, error) {
 	}
 	answer := strings.ToLower(strings.TrimSpace(line))
 	return answer == "y" || answer == "yes", nil
-}
-
-func printResult(res app.Result, host string) {
-	for _, warning := range res.Warnings {
-		fmt.Fprintln(os.Stderr, "warning:", warning)
-	}
-	prefix := ""
-	if res.DryRun {
-		prefix = "[dry-run] "
-	}
-	switch res.Action {
-	case app.ActionCreate:
-		fmt.Printf("%screated %q%s\n", prefix, res.Page.Title, pageLink(host, res.Page))
-	case app.ActionUpdate:
-		fmt.Printf("%supdated %q%s\n", prefix, res.Page.Title, pageLink(host, res.Page))
-	case app.ActionDelete:
-		fmt.Printf("%sdeleted (moved to trash) %q\n", prefix, res.Page.Title)
-	case app.ActionAborted:
-		fmt.Println("aborted; no changes made")
-	}
-}
-
-func pageLink(host string, page confluence.Page) string {
-	if host == "" || page.ID == "" {
-		return ""
-	}
-	return fmt.Sprintf(" -> https://%s/wiki/pages/viewpage.action?pageId=%s", host, page.ID)
 }
