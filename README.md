@@ -204,6 +204,17 @@ Reachable on this site: Confluence, Jira
 ```
 
 - The token is read **without echo** when stdin is a terminal.
+- **Non-interactive (CI, provisioning scripts).** `--site`, `--email` and
+  `--token` each skip the matching prompt; supply all three and nothing is
+  asked. Prefer piping the token so it never lands in the process list:
+
+  ```bash
+  printf '%s' "$ATLASSIAN_TOKEN" \
+    | acli-plus setup --site acme.atlassian.net --email you@acme.com
+  ```
+
+  Forgetting to pipe it reports `API token is required (pass --token, pipe it on
+  stdin, or answer the prompt)` rather than a bare read error.
 - Credentials are checked against **both** Confluence and Jira before being
   saved, and the last line reports which ones answered. A site licensed for only
   one product still works — the credentials are accepted as long as one product
